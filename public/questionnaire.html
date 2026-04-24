@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nuevo Registro · Cuestionario MINTIC</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="bg-light">
+
+  <!-- Barra de navegación -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+    <div class="container">
+      <span class="navbar-brand fw-bold">
+        <i class="fas fa-clipboard-list me-2"></i>Cuestionario MINTIC
+      </span>
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <span class="text-white small" id="user-greeting"></span>
+        <a href="/dashboard.html" class="btn btn-outline-light btn-sm">
+          <i class="fas fa-list me-1"></i>Mis registros
+        </a>
+        <button class="btn btn-outline-light btn-sm" id="logout-btn">
+          <i class="fas fa-sign-out-alt me-1"></i>Cerrar sesión
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container my-5">
+    <div class="row justify-content-center">
+      <div class="col-lg-8 col-xl-7">
+
+        <div class="card shadow-sm border-0 rounded-4">
+          <!-- Encabezado -->
+          <div class="card-header bg-white border-bottom-0 pt-4 pb-0 px-4">
+            <h5 class="fw-bold mb-1">
+              <i class="fas fa-file-alt text-primary me-2"></i>Registro de Beneficiario
+            </h5>
+            <p class="text-muted small">Los campos marcados con <span class="text-danger">*</span> son obligatorios.</p>
+          </div>
+
+          <div class="card-body p-4">
+            <div id="alert-box"></div>
+
+            <form id="questionnaire-form" novalidate>
+
+              <!-- ── Información del beneficiario ─────────────────────────── -->
+              <h6 class="section-title">Información del Beneficiario</h6>
+              <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                  <label for="nombre" class="form-label">
+                    Nombre completo <span class="text-danger">*</span>
+                  </label>
+                  <input type="text" class="form-control" id="nombre" name="nombre"
+                         required minlength="2" maxlength="100"
+                         placeholder="Ej: Juan García López"
+                         autocomplete="name" />
+                </div>
+
+                <div class="col-md-6">
+                  <label for="cedula" class="form-label">
+                    Cédula del beneficiario <span class="text-danger">*</span>
+                  </label>
+                  <input type="text" class="form-control" id="cedula" name="cedula"
+                         required pattern="\d{5,20}" inputmode="numeric"
+                         placeholder="Ej: 1234567890" />
+                </div>
+
+                <div class="col-12">
+                  <label for="correo" class="form-label">
+                    Correo electrónico <span class="text-danger">*</span>
+                  </label>
+                  <input type="email" class="form-control" id="correo" name="correo"
+                         required autocomplete="email"
+                         placeholder="beneficiario@correo.com" />
+                </div>
+              </div>
+
+              <!-- ── Vitrina ──────────────────────────────────────────────── -->
+              <h6 class="section-title">Vitrina</h6>
+              <div class="mb-4">
+                <label for="link_vitrina" class="form-label">Link de la vitrina</label>
+                <div class="input-group">
+                  <span class="input-group-text bg-white">
+                    <i class="fas fa-link text-muted"></i>
+                  </span>
+                  <input type="url" class="form-control" id="link_vitrina" name="link_vitrina"
+                         placeholder="https://ejemplo.com/mi-vitrina" />
+                </div>
+                <div class="form-text">Ingresa la URL completa incluyendo https://</div>
+              </div>
+
+              <!-- ── Notas ────────────────────────────────────────────────── -->
+              <div class="mb-4">
+                <label for="notas" class="form-label">Notas adicionales</label>
+                <textarea class="form-control" id="notas" name="notas"
+                          rows="3" maxlength="1000"
+                          placeholder="Observaciones o información adicional sobre el beneficiario..."></textarea>
+                <div class="d-flex justify-content-between form-text">
+                  <span>Máximo 1000 caracteres.</span>
+                  <span id="char-count">0 / 1000</span>
+                </div>
+              </div>
+
+              <!-- ── Archivos adjuntos ────────────────────────────────────── -->
+              <h6 class="section-title">Archivos Adjuntos</h6>
+              <div class="mb-4">
+                <div class="upload-zone rounded-3 p-4 text-center" id="upload-zone" role="button" tabindex="0"
+                     aria-label="Zona de carga de archivos">
+                  <i class="fas fa-cloud-upload-alt fa-2x text-muted mb-2"></i>
+                  <p class="mb-1 fw-semibold text-muted">Arrastra archivos aquí o haz clic para seleccionar</p>
+                  <p class="small text-muted mb-0">
+                    PDF · Imágenes (JPG, PNG, GIF) · Word · Excel · CSV · ZIP
+                  </p>
+                  <p class="small text-muted mb-3">Máximo 5 archivos · 10 MB por archivo</p>
+                  <input type="file" id="archivos" name="archivos" multiple
+                         accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.svg,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
+                         class="d-none" aria-label="Seleccionar archivos" />
+                  <button type="button" class="btn btn-outline-primary btn-sm" id="select-files-btn">
+                    <i class="fas fa-folder-open me-1"></i>Seleccionar archivos
+                  </button>
+                </div>
+                <div id="file-preview" class="mt-2"></div>
+              </div>
+
+              <!-- ── Botones ──────────────────────────────────────────────── -->
+              <div class="d-flex justify-content-end gap-2 pt-2">
+                <button type="reset" class="btn btn-outline-secondary">
+                  <i class="fas fa-undo me-1"></i>Limpiar
+                </button>
+                <button type="submit" class="btn btn-primary fw-semibold" id="submit-btn">
+                  <span class="spinner-border spinner-border-sm d-none me-1" id="spinner" role="status"></span>
+                  <i class="fas fa-paper-plane me-1" id="submit-icon"></i>Enviar registro
+                </button>
+              </div>
+
+            </form>
+          </div><!-- /.card-body -->
+        </div><!-- /.card -->
+
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/questionnaire.js"></script>
+</body>
+</html>

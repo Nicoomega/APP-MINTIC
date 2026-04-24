@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Registro · Cuestionario MINTIC</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="bg-light d-flex align-items-center min-vh-100">
+
+  <div class="container">
+    <div class="row justify-content-center">
+      <div class="col-sm-10 col-md-7 col-lg-5">
+
+        <div class="text-center mb-4">
+          <i class="fas fa-clipboard-list fa-3x text-primary mb-2"></i>
+          <h4 class="fw-bold mb-0">Cuestionario MINTIC</h4>
+          <p class="text-muted small">Registro de beneficiarios</p>
+        </div>
+
+        <div class="card shadow-sm border-0 rounded-4">
+          <div class="card-body p-4">
+            <h5 class="fw-semibold mb-1">Crear cuenta</h5>
+            <p class="text-muted small mb-3">
+              El primer usuario registrado obtiene rol de <strong>administrador</strong>.
+            </p>
+            <div id="alert-box"></div>
+
+            <form id="register-form" novalidate>
+              <div class="mb-3">
+                <label for="username" class="form-label">Nombre de usuario</label>
+                <input type="text" class="form-control" id="username" name="username"
+                       required minlength="3" maxlength="50" autocomplete="username"
+                       placeholder="usuario123" />
+                <div class="form-text">Solo letras, números y guiones bajos.</div>
+              </div>
+
+              <div class="mb-3">
+                <label for="email" class="form-label">Correo electrónico</label>
+                <input type="email" class="form-control" id="email" name="email"
+                       required autocomplete="email" placeholder="correo@ejemplo.com" />
+              </div>
+
+              <div class="mb-3">
+                <label for="password" class="form-label">Contraseña</label>
+                <div class="input-group">
+                  <input type="password" class="form-control" id="password" name="password"
+                         required autocomplete="new-password" />
+                  <button class="btn btn-outline-secondary" type="button" id="toggle-password" tabindex="-1"
+                          aria-label="Mostrar u ocultar contraseña">
+                    <i class="fas fa-eye"></i>
+                  </button>
+                </div>
+                <div class="form-text">Mínimo 8 caracteres, una mayúscula, una minúscula y un número.</div>
+              </div>
+
+              <div class="mb-4">
+                <label for="confirm-password" class="form-label">Confirmar contraseña</label>
+                <input type="password" class="form-control" id="confirm-password"
+                       required autocomplete="new-password" />
+              </div>
+
+              <button type="submit" class="btn btn-primary w-100 fw-semibold" id="submit-btn">
+                <span class="spinner-border spinner-border-sm d-none me-1" id="spinner" role="status"></span>
+                Registrarse
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <p class="text-center text-muted small mt-3 mb-0">
+          ¿Ya tienes cuenta? <a href="/index.html">Inicia sesión</a>
+        </p>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/auth.js"></script>
+</body>
+</html>

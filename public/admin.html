@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Administrador · MINTIC</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+  <!-- ── Navbar ── -->
+  <nav class="app-nav">
+    <div class="nav-inner">
+      <a href="#" class="brand">
+        <div class="brand-icon" style="background:linear-gradient(135deg,#10b981,#059669);">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+        </div>
+        MINTIC · Admin
+      </a>
+      <div class="nav-right">
+        <span class="user-label" id="user-greeting"></span>
+        <button class="btn-logout" id="logout-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+          Salir
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Contenido ── -->
+  <div class="page-content">
+
+    <div style="margin-bottom:1.75rem;">
+      <h1 style="font-size:1.35rem;font-weight:800;color:#0f172a;letter-spacing:-0.02em;margin:0 0 0.25rem;">Gestión de credenciales</h1>
+      <p style="font-size:0.85rem;color:#64748b;margin:0;">Crea y elimina accesos para revisores MINTIC y operadores.</p>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tab-group">
+      <button class="tab-btn active" id="tab-revisor" data-target="panel-revisor">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        Revisores MINTIC
+        <span id="count-revisor" style="background:#d1fae5;color:#065f46;font-size:0.7rem;font-weight:700;padding:0.1rem 0.5rem;border-radius:99px;border:1px solid #6ee7b7;">0</span>
+      </button>
+      <button class="tab-btn" id="tab-operador" data-target="panel-operador">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        Operadores
+        <span id="count-operador" style="background:#dbeafe;color:#1e40af;font-size:0.7rem;font-weight:700;padding:0.1rem 0.5rem;border-radius:99px;border:1px solid #93c5fd;">0</span>
+      </button>
+    </div>
+
+    <!-- Panel revisores -->
+    <div class="tab-panel active" id="panel-revisor">
+      <div class="card">
+        <div class="card-header">
+          <span style="font-size:0.9rem;font-weight:700;color:#0f172a;display:flex;align-items:center;gap:0.5rem;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#059669" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Revisores MINTIC
+          </span>
+          <button class="btn btn-primary btn-sm btn-abrir-modal" data-role="revisor">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+            Nuevo revisor
+          </button>
+        </div>
+        <div class="card-body" style="padding-top:0.75rem;">
+          <div id="table-revisor">
+            <div style="text-align:center;padding:2rem;color:#94a3b8;font-size:0.85rem;">
+              <div class="spinner" style="border-top-color:#059669;margin:0 auto 0.5rem;"></div>
+              Cargando...
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel operadores -->
+    <div class="tab-panel" id="panel-operador">
+      <div class="card">
+        <div class="card-header">
+          <span style="font-size:0.9rem;font-weight:700;color:#0f172a;display:flex;align-items:center;gap:0.5rem;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#059669" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            Operadores
+          </span>
+          <button class="btn btn-primary btn-sm btn-abrir-modal" data-role="operador">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+            Nuevo operador
+          </button>
+        </div>
+        <div class="card-body" style="padding-top:0.75rem;">
+          <div id="table-operador">
+            <div style="text-align:center;padding:2rem;color:#94a3b8;font-size:0.85rem;">
+              <div class="spinner" style="border-top-color:#059669;margin:0 auto 0.5rem;"></div>
+              Cargando...
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /page-content -->
+
+  <!-- ── Modal: Crear usuario ── -->
+  <div class="modal-overlay d-none" id="modal-crear">
+    <div class="modal-box" id="modal-crear-inner">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="#059669" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+          <span id="modal-crear-label">Crear usuario</span>
+        </div>
+        <button class="modal-close" id="modal-crear-close" aria-label="Cerrar">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div id="modal-alert"></div>
+        <form id="form-crear" novalidate>
+          <input type="hidden" id="crear-role" value="" />
+
+          <div class="form-group">
+            <label for="crear-username" class="form-label">Nombre de usuario</label>
+            <input type="text" class="form-control" id="crear-username"
+                   minlength="3" maxlength="50" autocomplete="off" placeholder="usuario123" required />
+            <p class="form-hint">Solo letras, números y guiones bajos.</p>
+          </div>
+          <div class="form-group">
+            <label for="crear-email" class="form-label">Correo electrónico</label>
+            <input type="email" class="form-control" id="crear-email"
+                   autocomplete="off" placeholder="correo@ejemplo.com" required />
+          </div>
+          <div class="form-group">
+            <label for="crear-password" class="form-label">Contraseña</label>
+            <div class="password-wrapper">
+              <input type="password" class="form-control" id="crear-password"
+                     minlength="8" autocomplete="new-password" placeholder="Mínimo 8 caracteres" required />
+              <button class="toggle-pwd" type="button" id="toggle-crear-pwd" tabindex="-1">
+                <svg id="cp-eye-open" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                <svg id="cp-eye-closed" class="d-none" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+              </button>
+            </div>
+            <p class="form-hint">Mínimo 8 caracteres, una mayúscula, una minúscula y un número.</p>
+          </div>
+        </form>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost btn-sm" id="modal-crear-cancel">Cancelar</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btn-crear-confirmar">
+          <span id="spinner-crear" class="d-none"><svg class="spinner" style="border-top-color:#fff;width:13px;height:13px;" viewBox="0 0 24 24"></svg></span>
+          Crear usuario
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Confirmar eliminación ── -->
+  <div class="modal-overlay d-none" id="modal-eliminar">
+    <div class="modal-box" id="modal-eliminar-inner" style="max-width:380px;">
+      <div class="modal-header">
+        <div class="modal-title" style="color:#dc2626;">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="#dc2626" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          Eliminar usuario
+        </div>
+        <button class="modal-close" id="modal-eliminar-close" aria-label="Cerrar">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:0.85rem;color:#475569;margin:0 0 0.5rem;">¿Deseas eliminar el acceso de:</p>
+        <p style="font-weight:700;margin:0 0 0.1rem;" id="eliminar-nombre"></p>
+        <p style="font-size:0.82rem;color:#94a3b8;margin:0 0 0.75rem;" id="eliminar-email"></p>
+        <p style="font-size:0.8rem;color:#94a3b8;margin:0;">Esta acción no se puede deshacer.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost btn-sm" id="modal-eliminar-cancel">Cancelar</button>
+        <button type="button" class="btn btn-danger btn-sm" id="btn-eliminar-confirmar">
+          <span id="spinner-eliminar" class="d-none"><svg class="spinner" style="border-top-color:#fff;width:13px;height:13px;" viewBox="0 0 24 24"></svg></span>
+          Eliminar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>
