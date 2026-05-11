@@ -29,10 +29,11 @@ const op1     = db.prepare("SELECT id FROM users WHERE username = 'operador_test
 function insertFiles(subId, prefix) {
   const fields = [
     ['cedula_pdf',               'cedula_beneficiario.pdf',         'application/pdf', 143360],
-    ['informe_pdf',              'informe_asistencia.pdf',          'application/pdf', 286720],
+    ['informe_pdf',              'informe_general.pdf',             'application/pdf', 286720],
     ['certificado_pdf',          'certificado_completado.pdf',      'application/pdf', 102400],
     ['planilla_conecta_pdf',     'planilla_conecta_region.pdf',     'application/pdf',  81920],
     ['planilla_comunicacion_pdf','planilla_comunicacion_efectiva.pdf','application/pdf', 81920],
+    ['calificacion_modulos_pdf', 'calificacion_modulos_virtuales.pdf','application/pdf', 122880],
     ['evidencia_chatbot',        'captura_chatbot.jpg',             'image/jpeg',      204800],
   ];
   for (const [field, origName, mime, size] of fields) {

@@ -122,10 +122,11 @@ function showForm(mode = 'nuevo', data = null, reviews = []) {
     // Mostrar archivos actuales
     const FILE_LABELS = {
       cedula_pdf: 'Cédula del beneficiario',
-      informe_pdf: 'Informe de asistencia',
+      informe_pdf: 'Informe general',
       certificado_pdf: 'Certificado',
       planilla_conecta_pdf: 'Planilla Conecta',
       planilla_comunicacion_pdf: 'Planilla Comunicación',
+      calificacion_modulos_pdf: 'Calificación módulos virtuales',
       evidencia_chatbot: 'Evidencia chatbot',
     };
     for (const [field, label] of Object.entries(FILE_LABELS)) {
@@ -155,7 +156,7 @@ function showForm(mode = 'nuevo', data = null, reviews = []) {
     // ── Bloquear campos que NO fueron rechazados ────────────────────────────
     // Mapeo: criterio de revisión → campos del formulario que controla
     const REVIEW_TO_FIELDS = {
-      gestion_asistencia:           ['cedula_pdf', 'informe_pdf', 'certificado_pdf', 'planilla_conecta_pdf', 'planilla_comunicacion_pdf'],
+      gestion_asistencia:           ['cedula_pdf', 'informe_pdf', 'certificado_pdf', 'planilla_conecta_pdf', 'planilla_comunicacion_pdf', 'calificacion_modulos_pdf'],
       firma_gestor:                 ['cedula_pdf', 'informe_pdf', 'certificado_pdf'],
       precio_ubicacion_descripcion: ['url_vitrina'],
       catalogo:                     ['url_vitrina'],
@@ -167,7 +168,8 @@ function showForm(mode = 'nuevo', data = null, reviews = []) {
     const rejectedFields = reviews.filter(r => r.status === 'no_cumple').map(r => r.field_name);
     const editableFields  = new Set(rejectedFields.flatMap(n => REVIEW_TO_FIELDS[n] ?? []));
     const allFormFields   = ['cedula_pdf', 'informe_pdf', 'certificado_pdf', 'planilla_conecta_pdf',
-                             'planilla_comunicacion_pdf', 'evidencia_chatbot', 'url_vitrina', 'url_chatbot'];
+                             'planilla_comunicacion_pdf', 'calificacion_modulos_pdf', 'evidencia_chatbot',
+                             'url_vitrina', 'url_chatbot'];
 
     // Limpiar badges anteriores
     document.querySelectorAll('.field-status-badge').forEach(b => b.remove());
@@ -231,10 +233,11 @@ function showForm(mode = 'nuevo', data = null, reviews = []) {
 
     const FILE_LABELS = {
       cedula_pdf: 'Cédula del beneficiario',
-      informe_pdf: 'Informe de asistencia',
+      informe_pdf: 'Informe general',
       certificado_pdf: 'Certificado',
       planilla_conecta_pdf: 'Planilla Conecta',
       planilla_comunicacion_pdf: 'Planilla Comunicación',
+      calificacion_modulos_pdf: 'Calificación módulos virtuales',
       evidencia_chatbot: 'Evidencia chatbot',
     };
     for (const [field, label] of Object.entries(FILE_LABELS)) {
@@ -284,7 +287,7 @@ function showForm(mode = 'nuevo', data = null, reviews = []) {
     notesDiv.classList.add('d-none');
 
     // Ocultar divs de archivos actuales y restaurar required
-    ['cedula_pdf','informe_pdf','certificado_pdf','planilla_conecta_pdf','planilla_comunicacion_pdf','evidencia_chatbot']
+    ['cedula_pdf','informe_pdf','certificado_pdf','planilla_conecta_pdf','planilla_comunicacion_pdf','calificacion_modulos_pdf','evidencia_chatbot']
       .forEach(field => {
         const currentDiv = document.getElementById(`current-${field}`);
         const inputEl    = document.getElementById(field);

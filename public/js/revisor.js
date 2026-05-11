@@ -22,10 +22,11 @@ const STATUS_MAP = {
 
 const FILE_LABELS = {
   cedula_pdf:                'Cédula del beneficiario',
-  informe_pdf:               'Informe de asistencia',
+  informe_pdf:               'Informe general',
   certificado_pdf:           'Certificado',
   planilla_conecta_pdf:      'Planilla Conecta Región Caribe',
   planilla_comunicacion_pdf: 'Planilla Comunicación Efectiva',
+  calificacion_modulos_pdf:  'Calificación módulos virtuales',
   evidencia_chatbot:         'Evidencia del chatbot',
 };
 
