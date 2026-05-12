@@ -70,14 +70,6 @@ const generalLimiter = rateLimit({
   message: { error: 'Demasiadas solicitudes. Intenta más tarde.' },
 });
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 15 : 500,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Demasiados intentos de autenticación. Intenta más tarde.' },
-});
-
 // Limiter específico para endpoints de subida (VUL-005)
 const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -88,7 +80,6 @@ const uploadLimiter = rateLimit({
 });
 
 app.use('/api', generalLimiter);
-app.use('/api/auth', authLimiter);
 app.use('/api/questionnaire', uploadLimiter);
 
 // ── Archivos estáticos — vistas protegidas por JWT ──────────────────────────
