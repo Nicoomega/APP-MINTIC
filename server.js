@@ -89,7 +89,6 @@ const uploadLimiter = rateLimit({
 
 app.use('/api', generalLimiter);
 app.use('/api/auth', authLimiter);
-app.use('/api/submissions', uploadLimiter);
 app.use('/api/questionnaire', uploadLimiter);
 
 // ── Archivos estáticos — vistas protegidas por JWT ──────────────────────────

@@ -15,7 +15,7 @@ if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 // ── Configuración de cada campo de archivo ────────────────────────────────────
 const FIELD_CONFIGS = {
-  cedula_pdf:                { mimes: ['application/pdf'],               maxPages: 2,    maxMB: 5,  label: 'Cédula del beneficiario',                        required: true },
+  cedula_pdf:                { mimes: ['application/pdf'],               maxPages: 15,   maxMB: 5,  label: 'Cédula del beneficiario',                        required: true },
   informe_pdf:               { mimes: ['application/pdf'],               maxPages: null, maxMB: 10, label: 'Informe general',                                required: true },
   certificado_pdf:           { mimes: ['application/pdf'],               maxPages: 2,    maxMB: 5,  label: 'Certificado',                                    required: true },
   planilla_conecta_pdf:      { mimes: ['application/pdf'],               maxPages: 1,    maxMB: 5,  label: 'Planilla INTRODUCCIÓN A CONECTA REGIÓN CARIBE',  required: true },
