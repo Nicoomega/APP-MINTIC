@@ -67,6 +67,7 @@ const generalLimiter = rateLimit({
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.path.startsWith('/auth'),
   message: { error: 'Demasiadas solicitudes. Intenta más tarde.' },
 });
 
