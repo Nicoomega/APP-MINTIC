@@ -7,6 +7,13 @@ const router = express.Router();
 
 // Campos que el revisor debe evaluar
 const REVIEW_FIELDS = [
+  { name: 'cedula_pdf',                  label: 'Cédula del beneficiario',                          group: 'Documentos', kind: 'documento' },
+  { name: 'informe_pdf',                 label: 'Informe general',                                  group: 'Documentos', kind: 'documento' },
+  { name: 'certificado_pdf',             label: 'Certificado',                                      group: 'Documentos', kind: 'documento' },
+  { name: 'planilla_conecta_pdf',        label: 'Planilla Conecta Región Caribe',                   group: 'Documentos', kind: 'documento' },
+  { name: 'planilla_comunicacion_pdf',   label: 'Planilla Comunicación Efectiva',                   group: 'Documentos', kind: 'documento' },
+  { name: 'calificacion_modulos_pdf',    label: 'Calificación módulos virtuales',                   group: 'Documentos', kind: 'documento' },
+  { name: 'evidencia_chatbot',           label: 'Evidencia del chatbot',                            group: 'Documentos', kind: 'documento' },
   { name: 'gestion_asistencia',          label: 'Gestión de la asistencia y acompañamiento',       group: 'Asistencia' },
   { name: 'firma_gestor',                label: 'Firma del gestor',                                 group: 'Asistencia' },
   { name: 'precio_ubicacion_descripcion',label: 'Precio, ubicación y descripción del producto',     group: 'Vitrina virtual' },

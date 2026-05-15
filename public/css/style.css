@@ -472,6 +472,26 @@ body {
 .doc-item-name { font-weight: 600; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-item-orig { font-size: 0.73rem; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.doc-review-wrap {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 0.55rem 0.6rem 0.7rem;
+  margin-bottom: 0.625rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+.doc-review-wrap .doc-item {
+  background: transparent;
+  border: none;
+  margin: 0 0 0.5rem;
+  padding: 0.15rem 0.25rem;
+}
+.doc-review-controls { padding: 0 0.25rem; }
+.doc-review-wrap.border-danger {
+  border-color: var(--danger) !important;
+  background: #fff5f5;
+}
+
 /* ── Sección grupo de revisión ────────────────────────────────────────────── */
 .review-group-header {
   font-size: 0.73rem;

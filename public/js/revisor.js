@@ -32,6 +32,13 @@ const FILE_LABELS = {
 
 // Definición de campos de revisión (se carga también desde /api/reviews/fields)
 let REVIEW_FIELDS = [
+  { name: 'cedula_pdf',                  label: 'Cédula del beneficiario',                        group: 'Documentos', kind: 'documento' },
+  { name: 'informe_pdf',                 label: 'Informe general',                                group: 'Documentos', kind: 'documento' },
+  { name: 'certificado_pdf',             label: 'Certificado',                                    group: 'Documentos', kind: 'documento' },
+  { name: 'planilla_conecta_pdf',        label: 'Planilla Conecta Región Caribe',                 group: 'Documentos', kind: 'documento' },
+  { name: 'planilla_comunicacion_pdf',   label: 'Planilla Comunicación Efectiva',                 group: 'Documentos', kind: 'documento' },
+  { name: 'calificacion_modulos_pdf',    label: 'Calificación módulos virtuales',                 group: 'Documentos', kind: 'documento' },
+  { name: 'evidencia_chatbot',           label: 'Evidencia del chatbot',                          group: 'Documentos', kind: 'documento' },
   { name: 'gestion_asistencia',          label: 'Gestión de la asistencia y acompañamiento',     group: 'Asistencia' },
   { name: 'firma_gestor',                label: 'Firma del gestor',                               group: 'Asistencia' },
   { name: 'precio_ubicacion_descripcion',label: 'Precio, ubicación y descripción del producto',   group: 'Vitrina virtual' },
@@ -41,6 +48,8 @@ let REVIEW_FIELDS = [
   { name: 'precios_referencia',          label: 'Precios de referencia - Productos relacionados', group: 'Vitrina virtual' },
   { name: 'preguntas_producto',          label: 'Preguntas acerca de este producto',              group: 'Vitrina virtual' },
 ];
+
+const isDocField = (f) => f.kind === 'documento' || Object.prototype.hasOwnProperty.call(FILE_LABELS, f.name);
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 async function requireRevisor() {
@@ -116,7 +125,36 @@ function renderList(list) {
   }).join('');
 }
 
-// ── Construir formulario de revisión ─────────────────────────────────────────
+// ── Construir controles de revisión por campo ────────────────────────────────
+function buildReviewControls(field, existing) {
+  const isCumple   = existing?.status === 'cumple';
+  const isNoCumple = existing?.status === 'no_cumple';
+  const comment    = existing?.comment ?? '';
+  return `
+    <div class="review-radio-group">
+      <label class="radio-option ${isCumple ? 'checked-cumple' : ''}">
+        <input type="radio" name="rf_${field.name}" value="cumple"
+               class="review-radio" data-field="${field.name}" ${isCumple ? 'checked' : ''} required />
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        Cumple
+      </label>
+      <label class="radio-option ${isNoCumple ? 'checked-nocumple' : ''}">
+        <input type="radio" name="rf_${field.name}" value="no_cumple"
+               class="review-radio" data-field="${field.name}" ${isNoCumple ? 'checked' : ''} />
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        No cumple
+      </label>
+    </div>
+    <div class="comment-wrap ${isNoCumple ? '' : 'd-none'}" id="comment-wrap-${field.name}">
+      <textarea class="form-control" rows="2"
+                id="comment_${field.name}" name="comment_${field.name}"
+                placeholder="Describe qué falta o qué error se encontró…"
+                maxlength="500">${escapeHtml(comment)}</textarea>
+      <p style="font-size:0.78rem;color:#dc2626;margin:0.25rem 0 0;">Campo obligatorio cuando se marca "No cumple".</p>
+    </div>`;
+}
+
+// ── Construir formulario de revisión (sin docs; los docs van inline) ─────────
 function buildReviewForm(existingReviews) {
   const reviewMap = {};
   for (const r of (existingReviews ?? [])) reviewMap[r.field_name] = r;
@@ -125,6 +163,8 @@ function buildReviewForm(existingReviews) {
   let lastGroup = '';
 
   for (const field of REVIEW_FIELDS) {
+    if (isDocField(field)) continue; // Los documentos se renderizan inline en la columna izquierda
+
     if (field.group !== lastGroup) {
       if (lastGroup) html += '</div>';
       html += `
@@ -133,35 +173,10 @@ function buildReviewForm(existingReviews) {
       lastGroup = field.group;
     }
 
-    const existing   = reviewMap[field.name];
-    const isCumple   = existing?.status === 'cumple';
-    const isNoCumple = existing?.status === 'no_cumple';
-    const comment    = existing?.comment ?? '';
-
     html += `
       <div class="review-field-item" id="field-wrap-${field.name}">
         <div style="font-size:0.85rem;font-weight:600;color:#0f172a;margin-bottom:0.625rem;">${escapeHtml(field.label)}</div>
-        <div class="review-radio-group">
-          <label class="radio-option ${isCumple ? 'checked-cumple' : ''}">
-            <input type="radio" name="rf_${field.name}" value="cumple"
-                   class="review-radio" data-field="${field.name}" ${isCumple ? 'checked' : ''} required />
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-            Cumple
-          </label>
-          <label class="radio-option ${isNoCumple ? 'checked-nocumple' : ''}">
-            <input type="radio" name="rf_${field.name}" value="no_cumple"
-                   class="review-radio" data-field="${field.name}" ${isNoCumple ? 'checked' : ''} />
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-            No cumple
-          </label>
-        </div>
-        <div class="comment-wrap ${isNoCumple ? '' : 'd-none'}" id="comment-wrap-${field.name}">
-          <textarea class="form-control" rows="2"
-                    id="comment_${field.name}" name="comment_${field.name}"
-                    placeholder="Describe qué falta o qué error se encontró…"
-                    maxlength="500">${escapeHtml(comment)}</textarea>
-          <p style="font-size:0.78rem;color:#dc2626;margin:0.25rem 0 0;">Campo obligatorio cuando se marca "No cumple".</p>
-        </div>
+        ${buildReviewControls(field, reviewMap[field.name])}
       </div>`;
   }
   if (lastGroup) html += '</div>';
@@ -201,24 +216,41 @@ async function showRevision(id) {
 
     document.getElementById('revision-operador').textContent = sub.operator_name ?? '?';
 
-    // Documentos
+    // Documentos (con controles de revisión inline)
+    const reviewMap = {};
+    for (const r of reviews) reviewMap[r.field_name] = r;
+    const docFieldNames = new Set(REVIEW_FIELDS.filter(isDocField).map(f => f.name));
+
     const docsList = document.getElementById('docs-list');
     if (!files.length) {
       docsList.innerHTML = '<p style="font-size:0.82rem;color:#94a3b8;">Sin archivos.</p>';
     } else {
-      docsList.innerHTML = files.map(f => `
-        <div class="doc-item" style="margin-bottom:0.5rem;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="${f.mimetype.startsWith('image/') ? '#0ea5e9' : '#dc2626'}" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
-          <div style="flex:1;min-width:0;">
-            <div style="font-size:0.82rem;font-weight:600;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(FILE_LABELS[f.field_name] ?? f.field_name)}</div>
-            <div style="font-size:0.75rem;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(f.original_name)}</div>
+      docsList.innerHTML = files.map(f => {
+        const hasReview  = docFieldNames.has(f.field_name);
+        const fieldDef   = REVIEW_FIELDS.find(r => r.name === f.field_name);
+        const controls   = hasReview && fieldDef
+          ? `<div class="doc-review-controls">
+               ${buildReviewControls(fieldDef, reviewMap[f.field_name])}
+             </div>`
+          : '';
+        const wrapId = hasReview ? `field-wrap-${f.field_name}` : '';
+        return `
+        <div class="doc-review-wrap" ${wrapId ? `id="${wrapId}"` : ''}>
+          <div class="doc-item">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="${f.mimetype.startsWith('image/') ? '#0ea5e9' : '#dc2626'}" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:0.82rem;font-weight:600;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(FILE_LABELS[f.field_name] ?? f.field_name)}</div>
+              <div style="font-size:0.75rem;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(f.original_name)}</div>
+            </div>
+            <a href="/api/submissions/${id}/files/${f.field_name}"
+               target="_blank" rel="noopener noreferrer"
+               class="btn btn-ghost btn-sm" style="padding:0.2rem 0.5rem;flex-shrink:0;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+            </a>
           </div>
-          <a href="/api/submissions/${id}/files/${f.field_name}"
-             target="_blank" rel="noopener noreferrer"
-             class="btn btn-ghost btn-sm" style="padding:0.2rem 0.5rem;flex-shrink:0;">
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-          </a>
-        </div>`).join('');
+          ${controls}
+        </div>`;
+      }).join('');
     }
 
     // URLs
@@ -232,14 +264,15 @@ async function showRevision(id) {
     // Formulario de revisión
     document.getElementById('review-fields-container').innerHTML = buildReviewForm(reviews);
 
-    // Si ya está revisado (no pendiente), deshabilitar el formulario
+    // Si ya está revisado (no pendiente), deshabilitar el formulario y controles inline
     if (sub.status !== 'pendiente_revision') {
-      document.querySelectorAll('#review-form input, #review-form textarea').forEach(el => el.disabled = true);
+      document.querySelectorAll('#review-form input, #review-form textarea, #docs-list input, #docs-list textarea')
+        .forEach(el => el.disabled = true);
       submitBtn.disabled = true;
       document.getElementById('review-btn-label').textContent = 'Revisión ya enviada';
     }
 
-    // Eventos: toggle comentarios al marcar "no cumple"
+    // Eventos: toggle comentarios al marcar "no cumple" (incluye controles inline en docs)
     document.querySelectorAll('.review-radio').forEach(radio => {
       radio.addEventListener('change', () => {
         const field       = radio.dataset.field;

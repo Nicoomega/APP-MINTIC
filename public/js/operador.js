@@ -154,8 +154,17 @@ function showForm(mode = 'nuevo', data = null, reviews = []) {
     document.getElementById('url_chatbot').value = data.submission.url_chatbot ?? '';
 
     // ── Bloquear campos que NO fueron rechazados ────────────────────────────
-    // Mapeo: criterio de revisión → campos del formulario que controla
+    // Mapeo: criterio/documento de revisión → campos del formulario que controla
     const REVIEW_TO_FIELDS = {
+      // Revisión por documento (cada doc → su propio input)
+      cedula_pdf:                   ['cedula_pdf'],
+      informe_pdf:                  ['informe_pdf'],
+      certificado_pdf:              ['certificado_pdf'],
+      planilla_conecta_pdf:         ['planilla_conecta_pdf'],
+      planilla_comunicacion_pdf:    ['planilla_comunicacion_pdf'],
+      calificacion_modulos_pdf:     ['calificacion_modulos_pdf'],
+      evidencia_chatbot:            ['evidencia_chatbot'],
+      // Criterios de evaluación
       gestion_asistencia:           ['cedula_pdf', 'informe_pdf', 'certificado_pdf', 'planilla_conecta_pdf', 'planilla_comunicacion_pdf', 'calificacion_modulos_pdf'],
       firma_gestor:                 ['cedula_pdf', 'informe_pdf', 'certificado_pdf'],
       precio_ubicacion_descripcion: ['url_vitrina'],
@@ -206,6 +215,13 @@ function showForm(mode = 'nuevo', data = null, reviews = []) {
       notesDiv.classList.remove('d-none');
       notesBdy.innerHTML = rejected.map(r => {
         const LABELS = {
+          cedula_pdf: 'Cédula del beneficiario',
+          informe_pdf: 'Informe general',
+          certificado_pdf: 'Certificado',
+          planilla_conecta_pdf: 'Planilla Conecta Región Caribe',
+          planilla_comunicacion_pdf: 'Planilla Comunicación Efectiva',
+          calificacion_modulos_pdf: 'Calificación módulos virtuales',
+          evidencia_chatbot: 'Evidencia del chatbot',
           gestion_asistencia: 'Gestión de la asistencia y acompañamiento',
           firma_gestor: 'Firma del gestor',
           precio_ubicacion_descripcion: 'Precio, ubicación y descripción del producto',
