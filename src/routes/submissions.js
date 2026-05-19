@@ -177,6 +177,8 @@ router.post('/', authenticateToken, requireRole('operador'), (req, res) => {
 });
 
 // ── GET /api/submissions ── Lista ─────────────────────────────────────────────
+// Para revisores: por defecto solo los asignados a él o que él mismo ya revisó.
+// Pasar ?scope=all para ver todos (modo "suave": pueden tomar otros).
 router.get('/', authenticateToken, (req, res) => {
   const { role, id: uid } = req.user;
   let rows;
@@ -190,15 +192,50 @@ router.get('/', authenticateToken, (req, res) => {
       WHERE  s.operator_id = ?
       ORDER  BY s.updated_at DESC
     `).all(uid);
+  } else if (role === 'revisor') {
+    const scope = req.query.scope === 'all' ? 'all' : 'mine';
+    if (scope === 'all') {
+      rows = db.prepare(`
+        SELECT s.id, s.status, s.url_vitrina, s.url_chatbot,
+               s.created_at, s.updated_at, s.submitted_at, s.reviewed_at,
+               s.assigned_reviewer_id,
+               op.username AS operator_name,
+               rv.username AS reviewer_name,
+               ar.username AS assigned_reviewer_name
+        FROM   submissions s
+        JOIN   users op ON op.id = s.operator_id
+        LEFT JOIN users rv ON rv.id = s.reviewer_id
+        LEFT JOIN users ar ON ar.id = s.assigned_reviewer_id
+        ORDER  BY s.updated_at DESC
+      `).all();
+    } else {
+      rows = db.prepare(`
+        SELECT s.id, s.status, s.url_vitrina, s.url_chatbot,
+               s.created_at, s.updated_at, s.submitted_at, s.reviewed_at,
+               s.assigned_reviewer_id,
+               op.username AS operator_name,
+               rv.username AS reviewer_name,
+               ar.username AS assigned_reviewer_name
+        FROM   submissions s
+        JOIN   users op ON op.id = s.operator_id
+        LEFT JOIN users rv ON rv.id = s.reviewer_id
+        LEFT JOIN users ar ON ar.id = s.assigned_reviewer_id
+        WHERE  s.assigned_reviewer_id = ? OR s.reviewer_id = ?
+        ORDER  BY s.updated_at DESC
+      `).all(uid, uid);
+    }
   } else {
     rows = db.prepare(`
       SELECT s.id, s.status, s.url_vitrina, s.url_chatbot,
              s.created_at, s.updated_at, s.submitted_at, s.reviewed_at,
+             s.assigned_reviewer_id,
              op.username AS operator_name,
-             rv.username AS reviewer_name
+             rv.username AS reviewer_name,
+             ar.username AS assigned_reviewer_name
       FROM   submissions s
       JOIN   users op ON op.id = s.operator_id
-      LEFT JOIN users rv ON rv.id  = s.reviewer_id
+      LEFT JOIN users rv ON rv.id = s.reviewer_id
+      LEFT JOIN users ar ON ar.id = s.assigned_reviewer_id
       ORDER  BY s.updated_at DESC
     `).all();
   }

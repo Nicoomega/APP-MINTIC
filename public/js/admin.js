@@ -127,6 +127,105 @@ async function loadUsers(role) {
 let pendingDeleteId   = null;
 let pendingDeleteRole = null;
 
+// ── Asignación de revisiones ─────────────────────────────────────────────────
+async function loadAssignmentOverview() {
+  const container = document.getElementById('asignar-list-container');
+  try {
+    const res = await fetch('/api/admin/assignment-overview', { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('No se pudo cargar la información de asignación.');
+    const { reviewers, pending_unassigned } = await res.json();
+
+    document.getElementById('stat-pendientes').textContent = pending_unassigned;
+    document.getElementById('stat-revisores').textContent  = reviewers.length;
+    document.getElementById('count-pending').textContent   = pending_unassigned;
+
+    if (!reviewers.length) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding:1.5rem 1rem;">
+          <p style="margin:0;font-size:0.85rem;color:#94a3b8;">No hay revisores registrados. Crea al menos uno en la pestaña "Revisores MINTIC".</p>
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = `
+      <div style="overflow-x:auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:42px;"></th>
+              <th>Revisor</th>
+              <th>Correo</th>
+              <th style="text-align:right;">Asignados pendientes</th>
+              <th style="text-align:right;">Total revisados</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${reviewers.map(r => `
+              <tr>
+                <td><input type="checkbox" class="asignar-check" data-id="${r.id}" checked /></td>
+                <td style="font-weight:600;">${escapeHtml(r.username)}</td>
+                <td style="color:#64748b;font-size:0.83rem;">${escapeHtml(r.email)}</td>
+                <td style="text-align:right;font-weight:700;color:#92400e;">${r.assigned_pending}</td>
+                <td style="text-align:right;color:#1e40af;font-weight:700;">${r.reviewed_total}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (err) {
+    container.innerHTML = `<div class="alert alert-danger small">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function handleAssignReviews() {
+  const checks = [...document.querySelectorAll('.asignar-check:checked')];
+  const reviewerIds = checks.map(c => Number(c.dataset.id));
+  const resultBox = document.getElementById('asignar-result');
+  resultBox.classList.add('d-none');
+
+  if (!reviewerIds.length) {
+    resultBox.innerHTML = '<div class="alert alert-danger" style="margin:0;">Selecciona al menos un revisor.</div>';
+    resultBox.classList.remove('d-none');
+    return;
+  }
+
+  const spinner = document.getElementById('spinner-asignar');
+  const btn     = document.getElementById('btn-asignar-confirmar');
+  spinner.classList.remove('d-none');
+  btn.disabled = true;
+
+  try {
+    const res  = await fetch('/api/admin/assign-reviews', {
+      method:      'POST',
+      headers:     { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body:        JSON.stringify({ reviewerIds }),
+    });
+    const data = await res.json();
+
+    if (res.ok) {
+      const rows = (data.distribution ?? [])
+        .map(d => `<li><strong>${escapeHtml(d.username)}</strong>: ${d.count} envío(s)</li>`)
+        .join('');
+      resultBox.innerHTML = `
+        <div class="alert alert-success" style="margin:0;">
+          <div style="font-weight:700;margin-bottom:0.35rem;">${escapeHtml(data.message)}</div>
+          <ul style="margin:0;padding-left:1.1rem;font-size:0.85rem;">${rows}</ul>
+        </div>`;
+      resultBox.classList.remove('d-none');
+      await loadAssignmentOverview();
+    } else {
+      resultBox.innerHTML = `<div class="alert alert-danger" style="margin:0;">${escapeHtml(data.error ?? data.errors?.[0]?.msg ?? 'Error al asignar.')}</div>`;
+      resultBox.classList.remove('d-none');
+    }
+  } catch {
+    resultBox.innerHTML = '<div class="alert alert-danger" style="margin:0;">Error de conexión. Intenta nuevamente.</div>';
+    resultBox.classList.remove('d-none');
+  } finally {
+    spinner.classList.add('d-none');
+    btn.disabled = false;
+  }
+}
+
 // ── Inicialización ────────────────────────────────────────────────────────────
 (async () => {
   const user = await requireAdmin();
@@ -139,8 +238,12 @@ let pendingDeleteRole = null;
     gsap.from('.page-content > *', { opacity: 0, y: 22, stagger: 0.07, duration: 0.45, ease: 'power2.out' });
   }
 
-  // Cargar ambas listas
-  await Promise.all([loadUsers('revisor'), loadUsers('operador')]);
+  // Cargar listas y resumen de asignación
+  await Promise.all([
+    loadUsers('revisor'),
+    loadUsers('operador'),
+    loadAssignmentOverview(),
+  ]);
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -149,7 +252,19 @@ let pendingDeleteRole = null;
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById(btn.dataset.target)?.classList.add('active');
+      // Refrescar la vista de asignación al entrar en ella
+      if (btn.dataset.target === 'panel-asignar') loadAssignmentOverview();
     });
+  });
+
+  // ── Asignación de revisiones ──────────────────────────────────────────────
+  document.getElementById('btn-refrescar-asignacion')?.addEventListener('click', loadAssignmentOverview);
+  document.getElementById('btn-asignar-confirmar')?.addEventListener('click', handleAssignReviews);
+  document.getElementById('btn-asignar-todos')?.addEventListener('click', () => {
+    document.querySelectorAll('.asignar-check').forEach(c => { c.checked = true; });
+  });
+  document.getElementById('btn-asignar-ninguno')?.addEventListener('click', () => {
+    document.querySelectorAll('.asignar-check').forEach(c => { c.checked = false; });
   });
 
   // ── Logout ────────────────────────────────────────────────────────────────

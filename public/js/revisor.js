@@ -66,10 +66,12 @@ async function requireRevisor() {
 async function loadList() {
   const container = document.getElementById('lista-container');
   const filtro    = document.getElementById('filtro-status').value;
+  const scope     = document.getElementById('filtro-scope')?.value ?? 'mine';
 
   container.innerHTML = `<div style="text-align:center;padding:2rem;"><div class="spinner" style="border-top-color:#059669;margin:0 auto;"></div></div>`;
   try {
-    const res  = await fetch('/api/submissions', { credentials: 'same-origin' });
+    const url  = scope === 'all' ? '/api/submissions?scope=all' : '/api/submissions';
+    const res  = await fetch(url, { credentials: 'same-origin' });
     const data = await res.json();
     let list   = data.submissions ?? [];
     if (filtro) list = list.filter(s => s.status === filtro);
@@ -410,8 +412,9 @@ async function handleReviewSubmit(e) {
     window.location.replace('/index.html');
   });
 
-  // Filtro
+  // Filtros
   document.getElementById('filtro-status').addEventListener('change', loadList);
+  document.getElementById('filtro-scope')?.addEventListener('change', loadList);
   document.getElementById('btn-refrescar').addEventListener('click', loadList);
 
   // Volver

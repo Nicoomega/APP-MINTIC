@@ -62,6 +62,13 @@ function runMigrations() {
     console.log('Migración v4 aplicada: campos de bloqueo de cuenta añadidos a users.');
   }
 
+  if (version < 5) {
+    try { db.exec(`ALTER TABLE submissions ADD COLUMN assigned_reviewer_id INTEGER REFERENCES users(id) ON DELETE SET NULL`); } catch { /* ya existe */ }
+    try { db.exec(`CREATE INDEX IF NOT EXISTS idx_submissions_assigned ON submissions(assigned_reviewer_id)`); } catch { /* ya existe */ }
+    db.pragma('user_version = 5');
+    console.log('Migración v5 aplicada: columna assigned_reviewer_id añadida a submissions.');
+  }
+
   if (version < 2) {
     db.exec(`
       BEGIN;

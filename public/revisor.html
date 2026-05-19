@@ -35,6 +35,10 @@
         <p style="font-size:0.85rem;color:#64748b;margin:0;">Revisa y aprueba los registros de beneficiarios.</p>
       </div>
       <div style="display:flex;gap:0.625rem;align-items:center;flex-wrap:wrap;">
+        <select id="filtro-scope" class="form-control" style="width:auto;font-size:0.82rem;padding:0.45rem 0.75rem;">
+          <option value="mine" selected>Asignados a mí</option>
+          <option value="all">Todos los envíos</option>
+        </select>
         <select id="filtro-status" class="form-control" style="width:auto;font-size:0.82rem;padding:0.45rem 0.75rem;">
           <option value="">Todos los estados</option>
           <option value="pendiente_revision" selected>Pendiente de revisión</option>

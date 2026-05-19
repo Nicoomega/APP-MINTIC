@@ -88,4 +88,85 @@ router.delete('/users/:id', [
   return res.json({ message: 'Usuario eliminado.' });
 });
 
+// ── GET /api/admin/assignment-overview ────────────────────────────────────────
+// Estado actual de asignaciones: revisores con sus cargas + pendientes sin asignar
+router.get('/assignment-overview', (_req, res) => {
+  const reviewers = db.prepare(`
+    SELECT
+      u.id, u.username, u.email,
+      (SELECT COUNT(*) FROM submissions s
+        WHERE s.assigned_reviewer_id = u.id AND s.status = 'pendiente_revision') AS assigned_pending,
+      (SELECT COUNT(*) FROM submissions s
+        WHERE s.reviewer_id = u.id) AS reviewed_total
+    FROM users u
+    WHERE u.role = 'revisor'
+    ORDER BY u.username COLLATE NOCASE
+  `).all();
+
+  const pendingUnassigned = db.prepare(`
+    SELECT COUNT(*) AS cnt FROM submissions
+    WHERE status = 'pendiente_revision' AND assigned_reviewer_id IS NULL
+  `).get().cnt;
+
+  return res.json({ reviewers, pending_unassigned: pendingUnassigned });
+});
+
+// ── POST /api/admin/assign-reviews ────────────────────────────────────────────
+// Body: { reviewerIds: [number] }
+// Reparte por round-robin los envíos pendientes SIN ASIGNAR entre los revisores indicados.
+router.post('/assign-reviews', [
+  body('reviewerIds').isArray({ min: 1 }).withMessage('Debe seleccionar al menos un revisor.'),
+  body('reviewerIds.*').isInt({ min: 1 }).withMessage('IDs de revisor inválidos.'),
+], (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+  const { reviewerIds } = req.body;
+  const uniqueIds = [...new Set(reviewerIds.map(Number))];
+
+  // Validar que todos sean realmente revisores
+  const placeholders = uniqueIds.map(() => '?').join(',');
+  const valid = db.prepare(
+    `SELECT id, username FROM users WHERE role = 'revisor' AND id IN (${placeholders})`
+  ).all(...uniqueIds);
+
+  if (valid.length !== uniqueIds.length) {
+    return res.status(400).json({ error: 'Uno o más IDs no corresponden a revisores válidos.' });
+  }
+
+  // Obtener pendientes SIN asignar (orden estable: el más antiguo primero)
+  const pending = db.prepare(`
+    SELECT id FROM submissions
+    WHERE status = 'pendiente_revision' AND assigned_reviewer_id IS NULL
+    ORDER BY COALESCE(submitted_at, created_at) ASC, id ASC
+  `).all();
+
+  if (!pending.length) {
+    return res.json({
+      message: 'No hay envíos pendientes sin asignar.',
+      assigned: 0,
+      distribution: valid.map(r => ({ id: r.id, username: r.username, count: 0 })),
+    });
+  }
+
+  // Round-robin: distribución equitativa (algunos reciben uno más)
+  const distMap = new Map(valid.map(r => [r.id, { id: r.id, username: r.username, count: 0 }]));
+  const update = db.prepare(`UPDATE submissions SET assigned_reviewer_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`);
+
+  const tx = db.transaction(() => {
+    pending.forEach((sub, i) => {
+      const reviewer = valid[i % valid.length];
+      update.run(reviewer.id, sub.id);
+      distMap.get(reviewer.id).count++;
+    });
+  });
+  tx();
+
+  return res.json({
+    message: `Se asignaron ${pending.length} envío(s) entre ${valid.length} revisor(es).`,
+    assigned: pending.length,
+    distribution: [...distMap.values()],
+  });
+});
+
 module.exports = router;
