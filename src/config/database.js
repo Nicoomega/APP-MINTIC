@@ -15,9 +15,9 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 function runMigrations() {
-  const version = db.pragma('user_version', { simple: true });
+  const getVersion = () => db.pragma('user_version', { simple: true });
 
-  if (version < 1) {
+  if (getVersion() < 1) {
     // Migración: actualizar roles de 'user'→'operador', añadir 'revisor'
     db.exec(`
       BEGIN;
@@ -43,33 +43,7 @@ function runMigrations() {
     console.log('Migración v1 aplicada: roles actualizados.');
   }
 
-  if (version < 3) {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS revoked_tokens (
-        jti        TEXT     PRIMARY KEY,
-        expires_at INTEGER  NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_revoked_tokens_expires ON revoked_tokens(expires_at);
-    `);
-    db.pragma('user_version = 3');
-    console.log('Migración v3 aplicada: tabla revoked_tokens creada.');
-  }
-
-  if (version < 4) {
-    try { db.exec(`ALTER TABLE users ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0`); } catch { /* ya existe */ }
-    try { db.exec(`ALTER TABLE users ADD COLUMN locked_until DATETIME`); } catch { /* ya existe */ }
-    db.pragma('user_version = 4');
-    console.log('Migración v4 aplicada: campos de bloqueo de cuenta añadidos a users.');
-  }
-
-  if (version < 5) {
-    try { db.exec(`ALTER TABLE submissions ADD COLUMN assigned_reviewer_id INTEGER REFERENCES users(id) ON DELETE SET NULL`); } catch { /* ya existe */ }
-    try { db.exec(`CREATE INDEX IF NOT EXISTS idx_submissions_assigned ON submissions(assigned_reviewer_id)`); } catch { /* ya existe */ }
-    db.pragma('user_version = 5');
-    console.log('Migración v5 aplicada: columna assigned_reviewer_id añadida a submissions.');
-  }
-
-  if (version < 2) {
+  if (getVersion() < 2) {
     db.exec(`
       BEGIN;
 
@@ -114,6 +88,32 @@ function runMigrations() {
     `);
     db.pragma('user_version = 2');
     console.log('Migración v2 aplicada: tablas de envíos y revisiones creadas.');
+  }
+
+  if (getVersion() < 3) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS revoked_tokens (
+        jti        TEXT     PRIMARY KEY,
+        expires_at INTEGER  NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_revoked_tokens_expires ON revoked_tokens(expires_at);
+    `);
+    db.pragma('user_version = 3');
+    console.log('Migración v3 aplicada: tabla revoked_tokens creada.');
+  }
+
+  if (getVersion() < 4) {
+    try { db.exec(`ALTER TABLE users ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0`); } catch { /* ya existe */ }
+    try { db.exec(`ALTER TABLE users ADD COLUMN locked_until DATETIME`); } catch { /* ya existe */ }
+    db.pragma('user_version = 4');
+    console.log('Migración v4 aplicada: campos de bloqueo de cuenta añadidos a users.');
+  }
+
+  if (getVersion() < 5) {
+    try { db.exec(`ALTER TABLE submissions ADD COLUMN assigned_reviewer_id INTEGER REFERENCES users(id) ON DELETE SET NULL`); } catch { /* ya existe */ }
+    try { db.exec(`CREATE INDEX IF NOT EXISTS idx_submissions_assigned ON submissions(assigned_reviewer_id)`); } catch { /* ya existe */ }
+    db.pragma('user_version = 5');
+    console.log('Migración v5 aplicada: columna assigned_reviewer_id añadida a submissions.');
   }
 }
 
