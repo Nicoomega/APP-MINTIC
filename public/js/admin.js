@@ -61,6 +61,8 @@ async function requireAdmin() {
 }
 
 // ── Renderizar tabla de usuarios ──────────────────────────────────────────────
+const ROLE_LABEL_PLURAL = { admin: 'administradores', revisor: 'revisores', operador: 'operadores' };
+
 function renderTable(users, role) {
   const containerId = `table-${role}`;
   const countId     = `count-${role}`;
@@ -73,7 +75,7 @@ function renderTable(users, role) {
     container.innerHTML = `
       <div class="empty-state" style="padding:2rem 1rem;">
         <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" fill="none" viewBox="0 0 24 24" stroke="#cbd5e1" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/></svg>
-        <p>No hay ${role === 'revisor' ? 'revisores' : 'operadores'} registrados aún.</p>
+        <p>No hay ${ROLE_LABEL_PLURAL[role] ?? role + 's'} registrados aún.</p>
       </div>`;
     return;
   }
@@ -157,6 +159,7 @@ async function loadAssignmentOverview() {
               <th>Correo</th>
               <th style="text-align:right;">Asignados pendientes</th>
               <th style="text-align:right;">Total revisados</th>
+              <th style="text-align:right;">Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -167,6 +170,17 @@ async function loadAssignmentOverview() {
                 <td style="color:#64748b;font-size:0.83rem;">${escapeHtml(r.email)}</td>
                 <td style="text-align:right;font-weight:700;color:#92400e;">${r.assigned_pending}</td>
                 <td style="text-align:right;color:#1e40af;font-weight:700;">${r.reviewed_total}</td>
+                <td style="text-align:right;">
+                  <button class="btn btn-ghost btn-sm btn-liberar"
+                          data-id="${r.id}"
+                          data-username="${escapeHtml(r.username)}"
+                          data-count="${r.assigned_pending}"
+                          ${r.assigned_pending === 0 ? 'disabled' : ''}
+                          title="Liberar todos los envíos pendientes asignados a este revisor">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 13l-7 7-7-7m14-8l-7 7-7-7"/></svg>
+                    Liberar
+                  </button>
+                </td>
               </tr>`).join('')}
           </tbody>
         </table>
@@ -240,6 +254,7 @@ async function handleAssignReviews() {
 
   // Cargar listas y resumen de asignación
   await Promise.all([
+    loadUsers('admin'),
     loadUsers('revisor'),
     loadUsers('operador'),
     loadAssignmentOverview(),
@@ -267,6 +282,42 @@ async function handleAssignReviews() {
     document.querySelectorAll('.asignar-check').forEach(c => { c.checked = false; });
   });
 
+  // ── Liberar asignaciones pendientes de un revisor (delegado) ──────────────
+  document.getElementById('asignar-list-container').addEventListener('click', async (e) => {
+    const btn = e.target.closest('.btn-liberar');
+    if (!btn || btn.disabled) return;
+    const reviewerId = Number(btn.dataset.id);
+    const username   = btn.dataset.username;
+    const count      = Number(btn.dataset.count);
+    if (!confirm(`¿Liberar los ${count} envío(s) pendientes asignados a ${username}? Volverán al pool de pendientes sin asignar.`)) return;
+
+    const resultBox = document.getElementById('asignar-result');
+    resultBox.classList.add('d-none');
+    btn.disabled = true;
+    try {
+      const res  = await fetch('/api/admin/clear-reviewer-pending', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ reviewerId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        resultBox.innerHTML = `<div class="alert alert-success" style="margin:0;">${escapeHtml(data.message)}</div>`;
+        resultBox.classList.remove('d-none');
+        await loadAssignmentOverview();
+      } else {
+        resultBox.innerHTML = `<div class="alert alert-danger" style="margin:0;">${escapeHtml(data.error ?? 'Error al liberar.')}</div>`;
+        resultBox.classList.remove('d-none');
+      }
+    } catch {
+      resultBox.innerHTML = '<div class="alert alert-danger" style="margin:0;">Error de conexión. Intenta nuevamente.</div>';
+      resultBox.classList.remove('d-none');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   // ── Logout ────────────────────────────────────────────────────────────────
   document.getElementById('logout-btn').addEventListener('click', async () => {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
@@ -274,12 +325,16 @@ async function handleAssignReviews() {
   });
 
   // ── Abrir modal crear ─────────────────────────────────────────────────────
+  const ROLE_LABEL_MODAL = {
+    admin:    'Nuevo administrador',
+    revisor:  'Nuevo revisor MINTIC',
+    operador: 'Nuevo operador',
+  };
   document.querySelectorAll('.btn-abrir-modal').forEach(btn => {
     btn.addEventListener('click', () => {
       const role = btn.dataset.role ?? 'revisor';
       document.getElementById('crear-role').value = role;
-      document.getElementById('modal-crear-label').textContent =
-        role === 'revisor' ? 'Nuevo revisor MINTIC' : 'Nuevo operador';
+      document.getElementById('modal-crear-label').textContent = ROLE_LABEL_MODAL[role] ?? 'Crear usuario';
       document.getElementById('form-crear').reset();
       document.getElementById('modal-alert').innerHTML = '';
       openModal('modal-crear');
@@ -390,9 +445,13 @@ async function handleAssignReviews() {
 
       if (res.ok) {
         closeModal('modal-eliminar');
-        if (pendingDeleteRole) await loadUsers(pendingDeleteRole);
-        const otroRol = pendingDeleteRole === 'revisor' ? 'operador' : 'revisor';
-        await loadUsers(otroRol);
+        // Recargar las tres listas + overview por si se borró un revisor con asignaciones
+        await Promise.all([
+          loadUsers('admin'),
+          loadUsers('revisor'),
+          loadUsers('operador'),
+          loadAssignmentOverview(),
+        ]);
       } else {
         const data = await res.json();
         alert(data.error ?? 'Error al eliminar.');

@@ -153,6 +153,15 @@ function showForm(mode = 'nuevo', data = null, reviews = []) {
     document.getElementById('url_vitrina').value = data.submission.url_vitrina ?? '';
     document.getElementById('url_chatbot').value = data.submission.url_chatbot ?? '';
 
+    // Pre-llenar documento del propietario (siempre editable al corregir
+    // — si el envío antiguo no lo tenía, el operador debe llenarlo ahora)
+    const ownerType   = document.getElementById('owner_doc_type');
+    const ownerNumber = document.getElementById('owner_doc_number');
+    ownerType.value   = data.submission.owner_doc_type ?? '';
+    ownerNumber.value = data.submission.owner_doc_number ?? '';
+    ownerType.removeAttribute('disabled');
+    ownerNumber.removeAttribute('readonly');
+
     // ── Bloquear campos que NO fueron rechazados ────────────────────────────
     // Mapeo: criterio/documento de revisión → campos del formulario que controla
     const REVIEW_TO_FIELDS = {
@@ -292,6 +301,14 @@ function showForm(mode = 'nuevo', data = null, reviews = []) {
     document.getElementById('url_vitrina').setAttribute('readonly', '');
     document.getElementById('url_chatbot').setAttribute('readonly', '');
 
+    // Documento del propietario (solo lectura)
+    const ownerType   = document.getElementById('owner_doc_type');
+    const ownerNumber = document.getElementById('owner_doc_number');
+    ownerType.value   = data.submission.owner_doc_type ?? '';
+    ownerNumber.value = data.submission.owner_doc_number ?? '';
+    ownerType.setAttribute('disabled', '');
+    ownerNumber.setAttribute('readonly', '');
+
     // Ocultar botón de envío
     document.getElementById('btn-submit').style.display = 'none';
 
@@ -323,6 +340,14 @@ function showForm(mode = 'nuevo', data = null, reviews = []) {
     document.getElementById('btn-submit').style.display = '';
     document.getElementById('url_vitrina').removeAttribute('readonly');
     document.getElementById('url_chatbot').removeAttribute('readonly');
+
+    // Documento del propietario editable y vacío
+    const ownerType   = document.getElementById('owner_doc_type');
+    const ownerNumber = document.getElementById('owner_doc_number');
+    ownerType.value   = '';
+    ownerNumber.value = '';
+    ownerType.removeAttribute('disabled');
+    ownerNumber.removeAttribute('readonly');
 
     // Limpiar estado del modo corregir/ver
     document.querySelectorAll('.field-status-badge').forEach(b => b.remove());

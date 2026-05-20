@@ -77,6 +77,34 @@
     <form id="upload-form" novalidate enctype="multipart/form-data">
       <input type="hidden" id="edit-id" value="" />
 
+      <!-- Propietario de la vitrina -->
+      <div class="card" style="margin-bottom:1.25rem;">
+        <div class="card-header" style="justify-content:flex-start;gap:0.5rem;padding:1rem 1.5rem;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#059669" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+          <span style="font-size:0.9rem;font-weight:700;color:#0f172a;">Propietario de la vitrina</span>
+        </div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:170px 1fr;gap:0.75rem;">
+            <div class="form-group" id="wrap-owner_doc_type" style="margin-bottom:0;">
+              <label for="owner_doc_type" class="form-label">Tipo de documento <span class="req">*</span></label>
+              <select class="form-control" id="owner_doc_type" name="owner_doc_type" required>
+                <option value="">Seleccionar…</option>
+                <option value="CC">CC – Cédula de ciudadanía</option>
+                <option value="NIT">NIT</option>
+                <option value="CE">CE – Cédula de extranjería</option>
+                <option value="PP">PP – Pasaporte</option>
+              </select>
+            </div>
+            <div class="form-group" id="wrap-owner_doc_number" style="margin-bottom:0;">
+              <label for="owner_doc_number" class="form-label">Número de documento <span class="req">*</span></label>
+              <input type="text" class="form-control" id="owner_doc_number" name="owner_doc_number"
+                     inputmode="numeric" pattern="[0-9]{6,15}" placeholder="Solo dígitos (6–15)" required />
+              <p class="form-hint">El sistema bloqueará el envío si este documento ya está registrado.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Documentos -->
       <div class="card" style="margin-bottom:1.25rem;">
         <div class="card-header" style="justify-content:flex-start;gap:0.5rem;padding:1rem 1.5rem;">

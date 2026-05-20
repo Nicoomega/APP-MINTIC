@@ -13,6 +13,37 @@ const router = express.Router();
 const UPLOADS_DIR = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
+// ── Documento del propietario de la vitrina ──────────────────────────────────
+const OWNER_DOC_TYPES = ['CC', 'NIT', 'CE', 'PP'];
+
+// Devuelve { type, number, errors } — type/number normalizados o errors no vacío
+function validateOwnerDoc(rawType, rawNumber, { required = true } = {}) {
+  const errors = [];
+  const type   = String(rawType ?? '').trim().toUpperCase();
+  const number = String(rawNumber ?? '').trim().replace(/[.\s-]/g, '');
+
+  if (!type && !number) {
+    if (required) errors.push('Debes indicar el tipo y número de documento del propietario.');
+    return { type: null, number: null, errors };
+  }
+  if (!OWNER_DOC_TYPES.includes(type)) {
+    errors.push(`Tipo de documento inválido. Permitidos: ${OWNER_DOC_TYPES.join(', ')}.`);
+  }
+  if (!/^\d{6,15}$/.test(number)) {
+    errors.push('El número de documento debe tener entre 6 y 15 dígitos (solo números).');
+  }
+  return { type: type || null, number: number || null, errors };
+}
+
+// Busca un envío que YA use ese documento. Si excludeId, lo excluye del chequeo.
+function findDocConflict(type, number, excludeId = null) {
+  if (!type || !number) return null;
+  const sql = excludeId
+    ? 'SELECT id, operator_id FROM submissions WHERE owner_doc_type = ? AND owner_doc_number = ? AND id != ? LIMIT 1'
+    : 'SELECT id, operator_id FROM submissions WHERE owner_doc_type = ? AND owner_doc_number = ? LIMIT 1';
+  return excludeId ? db.prepare(sql).get(type, number, excludeId) : db.prepare(sql).get(type, number);
+}
+
 // ── Configuración de cada campo de archivo ────────────────────────────────────
 const FIELD_CONFIGS = {
   cedula_pdf:                { mimes: ['application/pdf'],               maxPages: 15,   maxMB: 5,  label: 'Cédula del beneficiario',                        required: true },
@@ -132,6 +163,20 @@ router.post('/', authenticateToken, requireRole('operador'), (req, res) => {
         return res.status(400).json({ error: 'La URL del chatbot no es válida.' });
       }
 
+      // Validar documento del propietario (obligatorio)
+      const doc = validateOwnerDoc(req.body.owner_doc_type, req.body.owner_doc_number, { required: true });
+      if (doc.errors.length) {
+        deleteFiles(uploaded);
+        return res.status(400).json({ error: doc.errors.join(' ') });
+      }
+      const conflict = findDocConflict(doc.type, doc.number);
+      if (conflict) {
+        deleteFiles(uploaded);
+        return res.status(409).json({
+          error: `Ya existe un envío registrado con ${doc.type} ${doc.number}. No se puede duplicar.`,
+        });
+      }
+
       // Validar magic bytes primero (VUL-003) — detecta spoofing de Content-Type
       const magicErrors = await validateMagicBytes(req.files);
       if (magicErrors.length) {
@@ -148,25 +193,38 @@ router.post('/', authenticateToken, requireRole('operador'), (req, res) => {
 
       // Guardar en BD
       const insertSub  = db.prepare(
-        `INSERT INTO submissions (operator_id, url_vitrina, url_chatbot, status, submitted_at, updated_at)
-         VALUES (?, ?, ?, 'pendiente_revision', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+        `INSERT INTO submissions (operator_id, url_vitrina, url_chatbot, owner_doc_type, owner_doc_number, status, submitted_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'pendiente_revision', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
       );
       const insertFile = db.prepare(
         `INSERT INTO submission_files (submission_id, field_name, stored_name, original_name, mimetype, size)
          VALUES (?, ?, ?, ?, ?, ?)`
       );
 
-      const save = db.transaction(() => {
-        const { lastInsertRowid: subId } = insertSub.run(req.user.id, url_vitrina.trim(), url_chatbot.trim());
-        for (const field of ALL_FIELDS) {
-          const f = req.files[field][0];
-          insertFile.run(subId, field, f.filename, f.originalname, f.mimetype, f.size);
+      try {
+        const save = db.transaction(() => {
+          const { lastInsertRowid: subId } = insertSub.run(
+            req.user.id, url_vitrina.trim(), url_chatbot.trim(), doc.type, doc.number
+          );
+          for (const field of ALL_FIELDS) {
+            const f = req.files[field][0];
+            insertFile.run(subId, field, f.filename, f.originalname, f.mimetype, f.size);
+          }
+          return subId;
+        });
+        const subId = save();
+        return res.status(201).json({ message: 'Envío creado. En espera de revisión.', submissionId: subId });
+      } catch (txErr) {
+        // Carrera: alguien insertó el mismo documento entre el chequeo y el INSERT.
+        // El índice único parcial lanza SQLITE_CONSTRAINT_UNIQUE.
+        deleteFiles(uploaded);
+        if (txErr && /UNIQUE/i.test(txErr.message) && /owner_doc/i.test(txErr.message)) {
+          return res.status(409).json({
+            error: `Ya existe un envío registrado con ${doc.type} ${doc.number}. No se puede duplicar.`,
+          });
         }
-        return subId;
-      });
-
-      const subId = save();
-      return res.status(201).json({ message: 'Envío creado. En espera de revisión.', submissionId: subId });
+        throw txErr;
+      }
 
     } catch (e) {
       deleteFiles(uploaded);
@@ -185,6 +243,7 @@ router.get('/', authenticateToken, (req, res) => {
   if (role === 'operador') {
     rows = db.prepare(`
       SELECT s.id, s.status, s.url_vitrina, s.url_chatbot,
+             s.owner_doc_type, s.owner_doc_number,
              s.created_at, s.updated_at, s.submitted_at, s.reviewed_at,
              rv.username AS reviewer_name
       FROM   submissions s
@@ -197,6 +256,7 @@ router.get('/', authenticateToken, (req, res) => {
     if (scope === 'all') {
       rows = db.prepare(`
         SELECT s.id, s.status, s.url_vitrina, s.url_chatbot,
+               s.owner_doc_type, s.owner_doc_number,
                s.created_at, s.updated_at, s.submitted_at, s.reviewed_at,
                s.assigned_reviewer_id,
                op.username AS operator_name,
@@ -211,6 +271,7 @@ router.get('/', authenticateToken, (req, res) => {
     } else {
       rows = db.prepare(`
         SELECT s.id, s.status, s.url_vitrina, s.url_chatbot,
+               s.owner_doc_type, s.owner_doc_number,
                s.created_at, s.updated_at, s.submitted_at, s.reviewed_at,
                s.assigned_reviewer_id,
                op.username AS operator_name,
@@ -317,42 +378,79 @@ router.put('/:id', authenticateToken, requireRole('operador'), (req, res) => {
         return res.status(400).json({ error: `Límite de páginas excedido:\n${pageErrors.join('\n')}` });
       }
 
-      const update = db.transaction(() => {
-        const filesToDelete = [];
-        const delOld   = db.prepare('SELECT stored_name FROM submission_files WHERE submission_id = ? AND field_name = ?');
-        const delRow   = db.prepare('DELETE FROM submission_files WHERE submission_id = ? AND field_name = ?');
-        const insFile  = db.prepare(
-          `INSERT INTO submission_files (submission_id, field_name, stored_name, original_name, mimetype, size)
-           VALUES (?, ?, ?, ?, ?, ?)`
-        );
-
-        for (const field of ALL_FIELDS) {
-          const arr = req.files?.[field];
-          if (arr?.length) {
-            const old = delOld.get(id, field);
-            if (old) filesToDelete.push(path.join(UPLOADS_DIR, old.stored_name));
-            delRow.run(id, field);
-            insFile.run(id, field, arr[0].filename, arr[0].originalname, arr[0].mimetype, arr[0].size);
-          }
+      // Validar documento del propietario si viene en el body.
+      // Si el envío original no lo tenía (registros antiguos pre-v6), exigirlo.
+      const docProvided = (req.body.owner_doc_type ?? '').trim() !== '' || (req.body.owner_doc_number ?? '').trim() !== '';
+      const docRequired = !sub.owner_doc_number; // los antiguos sin documento deben llenarlo al corregir
+      let docType = sub.owner_doc_type;
+      let docNumber = sub.owner_doc_number;
+      if (docProvided || docRequired) {
+        const doc = validateOwnerDoc(req.body.owner_doc_type, req.body.owner_doc_number, { required: docRequired });
+        if (doc.errors.length) {
+          deleteFiles(uploaded);
+          return res.status(400).json({ error: doc.errors.join(' ') });
         }
+        if (doc.type && doc.number) {
+          const conflict = findDocConflict(doc.type, doc.number, id);
+          if (conflict) {
+            deleteFiles(uploaded);
+            return res.status(409).json({
+              error: `Ya existe un envío registrado con ${doc.type} ${doc.number}. No se puede duplicar.`,
+            });
+          }
+          docType = doc.type;
+          docNumber = doc.number;
+        }
+      }
 
-        const sets = ['status = ?', 'updated_at = CURRENT_TIMESTAMP', 'submitted_at = CURRENT_TIMESTAMP', 'reviewed_at = NULL', 'reviewer_id = NULL'];
-        const vals = ['pendiente_revision'];
-        if (url_vitrina?.trim()) { sets.push('url_vitrina = ?'); vals.push(url_vitrina.trim()); }
-        if (url_chatbot?.trim()) { sets.push('url_chatbot = ?'); vals.push(url_chatbot.trim()); }
-        vals.push(id);
-        db.prepare(`UPDATE submissions SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+      try {
+        const update = db.transaction(() => {
+          const filesToDelete = [];
+          const delOld   = db.prepare('SELECT stored_name FROM submission_files WHERE submission_id = ? AND field_name = ?');
+          const delRow   = db.prepare('DELETE FROM submission_files WHERE submission_id = ? AND field_name = ?');
+          const insFile  = db.prepare(
+            `INSERT INTO submission_files (submission_id, field_name, stored_name, original_name, mimetype, size)
+             VALUES (?, ?, ?, ?, ?, ?)`
+          );
 
-        // Limpiar revisiones anteriores para revisión fresca
-        db.prepare('DELETE FROM review_fields WHERE submission_id = ?').run(id);
+          for (const field of ALL_FIELDS) {
+            const arr = req.files?.[field];
+            if (arr?.length) {
+              const old = delOld.get(id, field);
+              if (old) filesToDelete.push(path.join(UPLOADS_DIR, old.stored_name));
+              delRow.run(id, field);
+              insFile.run(id, field, arr[0].filename, arr[0].originalname, arr[0].mimetype, arr[0].size);
+            }
+          }
 
-        return filesToDelete;
-      });
+          const sets = ['status = ?', 'updated_at = CURRENT_TIMESTAMP', 'submitted_at = CURRENT_TIMESTAMP', 'reviewed_at = NULL', 'reviewer_id = NULL'];
+          const vals = ['pendiente_revision'];
+          if (url_vitrina?.trim()) { sets.push('url_vitrina = ?'); vals.push(url_vitrina.trim()); }
+          if (url_chatbot?.trim()) { sets.push('url_chatbot = ?'); vals.push(url_chatbot.trim()); }
+          if (docType !== sub.owner_doc_type)     { sets.push('owner_doc_type = ?');   vals.push(docType); }
+          if (docNumber !== sub.owner_doc_number) { sets.push('owner_doc_number = ?'); vals.push(docNumber); }
+          vals.push(id);
+          db.prepare(`UPDATE submissions SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
 
-      const oldFiles = update();
-      deleteFiles(oldFiles);
+          // Limpiar revisiones anteriores para revisión fresca
+          db.prepare('DELETE FROM review_fields WHERE submission_id = ?').run(id);
 
-      return res.json({ message: 'Envío corregido y enviado nuevamente a revisión.' });
+          return filesToDelete;
+        });
+
+        const oldFiles = update();
+        deleteFiles(oldFiles);
+
+        return res.json({ message: 'Envío corregido y enviado nuevamente a revisión.' });
+      } catch (txErr) {
+        deleteFiles(uploaded);
+        if (txErr && /UNIQUE/i.test(txErr.message) && /owner_doc/i.test(txErr.message)) {
+          return res.status(409).json({
+            error: `Ya existe un envío registrado con ${docType} ${docNumber}. No se puede duplicar.`,
+          });
+        }
+        throw txErr;
+      }
 
     } catch (e) {
       deleteFiles(uploaded);

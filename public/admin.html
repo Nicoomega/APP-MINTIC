@@ -47,6 +47,11 @@
         Operadores
         <span id="count-operador" style="background:#dbeafe;color:#1e40af;font-size:0.7rem;font-weight:700;padding:0.1rem 0.5rem;border-radius:99px;border:1px solid #93c5fd;">0</span>
       </button>
+      <button class="tab-btn" id="tab-admin" data-target="panel-admin">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+        Administradores
+        <span id="count-admin" style="background:#ede9fe;color:#6d28d9;font-size:0.7rem;font-weight:700;padding:0.1rem 0.5rem;border-radius:99px;border:1px solid #c4b5fd;">0</span>
+      </button>
       <button class="tab-btn" id="tab-asignar" data-target="panel-asignar">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
         Asignar revisiones
@@ -102,6 +107,30 @@
       </div>
     </div>
 
+    <!-- Panel administradores -->
+    <div class="tab-panel" id="panel-admin">
+      <div class="card">
+        <div class="card-header">
+          <span style="font-size:0.9rem;font-weight:700;color:#0f172a;display:flex;align-items:center;gap:0.5rem;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#6d28d9" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+            Administradores
+          </span>
+          <button class="btn btn-primary btn-sm btn-abrir-modal" data-role="admin">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+            Nuevo administrador
+          </button>
+        </div>
+        <div class="card-body" style="padding-top:0.75rem;">
+          <div id="table-admin">
+            <div style="text-align:center;padding:2rem;color:#94a3b8;font-size:0.85rem;">
+              <div class="spinner" style="border-top-color:#6d28d9;margin:0 auto 0.5rem;"></div>
+              Cargando...
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Panel asignar revisiones -->
     <div class="tab-panel" id="panel-asignar">
       <div class="card">
@@ -110,15 +139,22 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#d97706" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
             Distribuir envíos entre revisores
           </span>
-          <button class="btn btn-ghost btn-sm" id="btn-refrescar-asignacion" title="Refrescar">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-            Refrescar
-          </button>
+          <div style="display:flex;gap:0.5rem;">
+            <a class="btn btn-ghost btn-sm" id="btn-descargar-excel" href="/api/admin/reviewers-report.xlsx" title="Descargar reporte en Excel">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"/></svg>
+              Descargar Excel
+            </a>
+            <button class="btn btn-ghost btn-sm" id="btn-refrescar-asignacion" title="Refrescar">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              Refrescar
+            </button>
+          </div>
         </div>
         <div class="card-body">
           <p style="font-size:0.85rem;color:#475569;margin:0 0 0.75rem;">
             Selecciona los revisores que participarán y haz clic en <strong>Asignar equitativamente</strong>.
-            Los envíos pendientes <strong>sin revisor asignado</strong> se repartirán por turnos (round-robin).
+            Los envíos pendientes <strong>se redistribuyen por carga total</strong> (envíos pendientes y ya revisados),
+            así un revisor nuevo recibe más para emparejarse con los antiguos.
           </p>
 
           <div id="asignar-stats" style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:1rem;">

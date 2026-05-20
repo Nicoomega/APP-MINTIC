@@ -115,6 +115,23 @@ function runMigrations() {
     db.pragma('user_version = 5');
     console.log('Migración v5 aplicada: columna assigned_reviewer_id añadida a submissions.');
   }
+
+  if (getVersion() < 6) {
+    // Documento de identificación del propietario de la vitrina.
+    // owner_doc_type: CC | NIT | CE | PP
+    // owner_doc_number: solo dígitos
+    // El índice único parcial (WHERE NOT NULL) permite que envíos antiguos sin documento
+    // sigan siendo válidos, pero impide duplicados entre los nuevos.
+    try { db.exec(`ALTER TABLE submissions ADD COLUMN owner_doc_type TEXT`); } catch { /* ya existe */ }
+    try { db.exec(`ALTER TABLE submissions ADD COLUMN owner_doc_number TEXT`); } catch { /* ya existe */ }
+    try {
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_submissions_owner_doc
+               ON submissions(owner_doc_type, owner_doc_number)
+               WHERE owner_doc_number IS NOT NULL`);
+    } catch { /* ya existe */ }
+    db.pragma('user_version = 6');
+    console.log('Migración v6 aplicada: campos de documento del propietario añadidos a submissions.');
+  }
 }
 
 function initDatabase() {
