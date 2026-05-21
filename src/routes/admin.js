@@ -223,10 +223,12 @@ router.post('/clear-reviewer-pending', [
 
 // ── POST /api/admin/assign-reviews ────────────────────────────────────────────
 // Body: { reviewerIds: [number] }
-// Distribución EQUITATIVA por round-robin entre los revisores marcados.
-// Cada revisor recibe ⌈N/k⌉ o ⌊N/k⌋ envíos (diferencia máxima de 1 entre cualquier par).
-// El historial de revisiones (reviewed_total) NO afecta la distribución: nadie recibe
-// más trabajo nuevo por haber trabajado más en el pasado.
+// Igualar CARGA TOTAL: la suma (reviewed_total + asignados_pendientes) queda lo más
+// pareja posible entre los revisores marcados.
+//
+// Quien ya ha revisado MÁS tiendas NO recibe nuevos envíos hasta que los demás lo
+// alcancen. Si tras emparejar quedan envíos sobrantes, esos se reparten en round-robin
+// entre todos los marcados, así nadie es "castigado" por su historial.
 //
 // Pool a repartir: pendientes sin asignar + pendientes asignados a revisores DEL POOL
 // (esto permite rebalancear si la carga actual quedó desigual).
@@ -262,19 +264,26 @@ router.post('/assign-reviews', [
     ORDER BY COALESCE(submitted_at, created_at) ASC, id ASC
   `).all(...validIds);
 
-  // Orden estable de los revisores para round-robin determinista
-  const sorted = [...valid].sort((a, b) => a.id - b.id);
-  const counts = new Map(sorted.map(r => [r.id, { id: r.id, username: r.username, count: 0 }]));
+  // Estado por revisor: base (lo que ya revisó) + count (lo que recibe en esta corrida)
+  const state = new Map();
+  for (const r of valid) {
+    const reviewed = db.prepare(
+      `SELECT COUNT(*) AS c FROM submissions WHERE reviewer_id = ?`
+    ).get(r.id).c;
+    state.set(r.id, { id: r.id, username: r.username, base_reviewed: reviewed, count: 0 });
+  }
 
   if (!pool.length) {
     return res.json({
       message: 'No hay envíos pendientes para distribuir.',
       assigned: 0,
-      distribution: [...counts.values()],
+      distribution: [...state.values()].map(s => ({ id: s.id, username: s.username, count: 0, base_reviewed: s.base_reviewed })),
     });
   }
 
-  // Round-robin puro: el envío i va al revisor sorted[i % k]
+  // Greedy: por cada envío, asignarlo al revisor con MENOR carga proyectada
+  // (base_reviewed + count). Empates resueltos por menor id (orden estable).
+  // Esto garantiza que la suma final por revisor quede lo más pareja posible.
   const update = db.prepare(`
     UPDATE submissions
     SET    assigned_reviewer_id = ?, updated_at = CURRENT_TIMESTAMP
@@ -282,18 +291,30 @@ router.post('/assign-reviews', [
   `);
 
   const tx = db.transaction(() => {
-    pool.forEach((sub, i) => {
-      const reviewer = sorted[i % sorted.length];
-      update.run(reviewer.id, sub.id);
-      counts.get(reviewer.id).count++;
-    });
+    for (const sub of pool) {
+      let pick = null;
+      let pickLoad = Infinity;
+      for (const r of state.values()) {
+        const projected = r.base_reviewed + r.count;
+        if (projected < pickLoad || (projected === pickLoad && pick && r.id < pick.id)) {
+          pick = r;
+          pickLoad = projected;
+        }
+      }
+      update.run(pick.id, sub.id);
+      pick.count++;
+    }
   });
   tx();
 
   return res.json({
-    message: `Se distribuyeron ${pool.length} envío(s) entre ${valid.length} revisor(es) en partes iguales.`,
+    message: `Se distribuyeron ${pool.length} envío(s) entre ${valid.length} revisor(es) igualando la carga total.`,
     assigned: pool.length,
-    distribution: [...counts.values()],
+    distribution: [...state.values()].map(s => ({
+      id: s.id, username: s.username, count: s.count,
+      base_reviewed: s.base_reviewed,
+      total: s.base_reviewed + s.count,
+    })),
   });
 });
 
