@@ -69,6 +69,79 @@ router.post('/users', [
   });
 });
 
+// ── PATCH /api/admin/users/:id  (editar datos de usuario) ─────────────────────
+// Body opcional: { username?, email?, password?, role? }
+// Protecciones:
+//   - No puedes cambiar tu propio rol (evita lockout)
+//   - No puedes degradar al último administrador
+//   - Email/username deben seguir siendo únicos
+router.patch('/users/:id', [
+  param('id').isInt({ min: 1 }).withMessage('ID inválido.'),
+  body('username').optional()
+    .trim()
+    .isLength({ min: 3, max: 50 }).withMessage('El nombre de usuario debe tener entre 3 y 50 caracteres.')
+    .matches(/^[a-zA-Z0-9_]+$/).withMessage('Solo letras, números y guiones bajos.'),
+  body('email').optional()
+    .isEmail().withMessage('Correo electrónico inválido.')
+    .normalizeEmail(),
+  body('password').optional({ checkFalsy: true })
+    .isLength({ min: 8 }).withMessage('La contraseña debe tener al menos 8 caracteres.')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('Debe incluir una mayúscula, una minúscula y un número.'),
+  body('role').optional()
+    .isIn(ROLES).withMessage("El rol debe ser 'admin', 'revisor' u 'operador'."),
+], (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+  const id = parseInt(req.params.id, 10);
+  const user = db.prepare("SELECT id, username, email, role FROM users WHERE id = ? AND role IN ('admin','revisor','operador')").get(id);
+  if (!user) return res.status(404).json({ error: 'Usuario no encontrado.' });
+
+  const { username, email, password, role } = req.body;
+  if (username === undefined && email === undefined && password === undefined && role === undefined) {
+    return res.status(400).json({ error: 'No hay cambios para guardar.' });
+  }
+
+  // Protecciones de rol
+  if (role !== undefined && role !== user.role) {
+    if (id === req.user.id && role !== 'admin') {
+      return res.status(400).json({ error: 'No puedes cambiar tu propio rol de administrador.' });
+    }
+    if (user.role === 'admin' && role !== 'admin') {
+      const adminCount = db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin'").get().c;
+      if (adminCount <= 1) {
+        return res.status(400).json({ error: 'No se puede degradar al último administrador del sistema.' });
+      }
+    }
+  }
+
+  // Unicidad de username/email (excluyéndose a sí mismo)
+  if (username !== undefined && username !== user.username) {
+    const exists = db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username, id);
+    if (exists) return res.status(409).json({ error: 'El nombre de usuario ya está en uso.' });
+  }
+  if (email !== undefined && email !== user.email) {
+    const exists = db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(email, id);
+    if (exists) return res.status(409).json({ error: 'El correo electrónico ya está en uso.' });
+  }
+
+  // UPDATE dinámico
+  const sets = [];
+  const vals = [];
+  if (username !== undefined) { sets.push('username = ?');      vals.push(username); }
+  if (email    !== undefined) { sets.push('email = ?');         vals.push(email); }
+  if (password)               { sets.push('password_hash = ?'); vals.push(bcrypt.hashSync(password, SALT_ROUNDS)); }
+  if (role     !== undefined) { sets.push('role = ?');          vals.push(role); }
+
+  if (!sets.length) return res.status(400).json({ error: 'No hay cambios para guardar.' });
+  vals.push(id);
+  db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+
+  const updated = db.prepare('SELECT id, username, email, role FROM users WHERE id = ?').get(id);
+  return res.json({ message: 'Usuario actualizado.', user: updated });
+});
+
 // ── DELETE /api/admin/users/:id  (eliminar usuario) ───────────────────────────
 router.delete('/users/:id', [
   param('id').isInt({ min: 1 }).withMessage('ID inválido.'),

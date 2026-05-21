@@ -45,6 +45,10 @@ function showModalAlert(msg, type = 'danger') {
   const box = document.getElementById('modal-alert');
   box.innerHTML = `<div class="alert alert-${type}" style="margin-bottom:0.75rem;">${escapeHtml(msg)}</div>`;
 }
+function showEditAlert(msg, type = 'danger') {
+  const box = document.getElementById('modal-editar-alert');
+  box.innerHTML = `<div class="alert alert-${type}" style="margin-bottom:0.75rem;">${escapeHtml(msg)}</div>`;
+}
 
 // ── Verificar que sea administrador ──────────────────────────────────────────
 async function requireAdmin() {
@@ -98,13 +102,23 @@ function renderTable(users, role) {
               <td style="color:#64748b;font-size:0.83rem;">${escapeHtml(u.email)}</td>
               <td style="color:#94a3b8;font-size:0.8rem;">${formatDate(u.created_at)}</td>
               <td style="text-align:right;">
-                <button class="btn btn-danger btn-sm btn-eliminar"
-                        data-id="${u.id}"
-                        data-username="${escapeHtml(u.username)}"
-                        data-email="${escapeHtml(u.email)}">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                  Eliminar
-                </button>
+                <div style="display:inline-flex;gap:0.4rem;justify-content:flex-end;">
+                  <button class="btn btn-ghost btn-sm btn-editar"
+                          data-id="${u.id}"
+                          data-username="${escapeHtml(u.username)}"
+                          data-email="${escapeHtml(u.email)}"
+                          data-role="${escapeHtml(u.role ?? role)}">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    Editar
+                  </button>
+                  <button class="btn btn-danger btn-sm btn-eliminar"
+                          data-id="${u.id}"
+                          data-username="${escapeHtml(u.username)}"
+                          data-email="${escapeHtml(u.email)}">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    Eliminar
+                  </button>
+                </div>
               </td>
             </tr>`).join('')}
         </tbody>
@@ -348,11 +362,104 @@ async function handleAssignReviews() {
   ['modal-eliminar-close', 'modal-eliminar-cancel'].forEach(id =>
     document.getElementById(id)?.addEventListener('click', () => closeModal('modal-eliminar'))
   );
-  ['modal-crear', 'modal-eliminar'].forEach(id =>
+  ['modal-editar-close', 'modal-editar-cancel'].forEach(id =>
+    document.getElementById(id)?.addEventListener('click', () => closeModal('modal-editar'))
+  );
+  ['modal-crear', 'modal-eliminar', 'modal-editar'].forEach(id =>
     document.getElementById(id)?.addEventListener('click', e => {
       if (e.target === e.currentTarget) closeModal(id);
     })
   );
+
+  // ── Toggle contraseña editar ─────────────────────────────────────────────
+  document.getElementById('toggle-editar-pwd')?.addEventListener('click', () => {
+    const pwd  = document.getElementById('editar-password');
+    const eyeO = document.getElementById('ep-eye-open');
+    const eyeC = document.getElementById('ep-eye-closed');
+    if (pwd.type === 'password') {
+      pwd.type = 'text';
+      eyeO?.classList.add('d-none');
+      eyeC?.classList.remove('d-none');
+    } else {
+      pwd.type = 'password';
+      eyeO?.classList.remove('d-none');
+      eyeC?.classList.add('d-none');
+    }
+  });
+
+  // ── Delegación: abrir modal editar ───────────────────────────────────────
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.btn-editar');
+    if (!btn) return;
+
+    document.getElementById('editar-id').value            = btn.dataset.id;
+    document.getElementById('editar-role-original').value = btn.dataset.role ?? '';
+    document.getElementById('editar-username').value      = btn.dataset.username ?? '';
+    document.getElementById('editar-email').value         = btn.dataset.email ?? '';
+    document.getElementById('editar-role').value          = btn.dataset.role ?? '';
+    document.getElementById('editar-password').value      = '';
+    document.getElementById('modal-editar-alert').innerHTML = '';
+
+    // Bloquear cambio de rol si el usuario edita su propia cuenta
+    const isSelf = Number(btn.dataset.id) === user.id;
+    document.getElementById('editar-role').disabled = isSelf;
+
+    openModal('modal-editar');
+  });
+
+  // ── Confirmar edición ─────────────────────────────────────────────────────
+  document.getElementById('btn-editar-confirmar').addEventListener('click', async () => {
+    const id          = document.getElementById('editar-id').value;
+    const username    = document.getElementById('editar-username').value.trim();
+    const email       = document.getElementById('editar-email').value.trim();
+    const password    = document.getElementById('editar-password').value;
+    const role        = document.getElementById('editar-role').value;
+    const roleOrig    = document.getElementById('editar-role-original').value;
+    const isSelf      = Number(id) === user.id;
+
+    if (!username || !email) {
+      showEditAlert('Nombre de usuario y correo son obligatorios.');
+      return;
+    }
+
+    const body = {};
+    if (username) body.username = username;
+    if (email)    body.email    = email;
+    if (password) body.password = password;
+    if (!isSelf && role !== roleOrig) body.role = role;
+
+    const spinner = document.getElementById('spinner-editar');
+    const btn     = document.getElementById('btn-editar-confirmar');
+    spinner.classList.remove('d-none');
+    btn.disabled = true;
+
+    try {
+      const res  = await fetch(`/api/admin/users/${id}`, {
+        method:      'PATCH',
+        headers:     { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body:        JSON.stringify(body),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        closeModal('modal-editar');
+        await Promise.all([
+          loadUsers('admin'),
+          loadUsers('revisor'),
+          loadUsers('operador'),
+          loadAssignmentOverview(),
+        ]);
+      } else {
+        showEditAlert(data.errors?.[0]?.msg ?? data.error ?? 'Error al guardar.');
+      }
+    } catch {
+      showEditAlert('Error de conexión. Intenta nuevamente.');
+    } finally {
+      spinner.classList.add('d-none');
+      btn.disabled = false;
+    }
+  });
 
   // ── Toggle contraseña crear ───────────────────────────────────────────────
   document.getElementById('toggle-crear-pwd')?.addEventListener('click', () => {
