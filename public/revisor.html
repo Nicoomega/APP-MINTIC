@@ -29,7 +29,7 @@
 
   <!-- ── SECCIÓN: LISTA ── -->
   <div id="section-lista" class="page-content">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1.5rem;flex-wrap:wrap;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">
       <div>
         <h1 style="font-size:1.35rem;font-weight:800;color:#0f172a;letter-spacing:-0.02em;margin:0 0 0.25rem;">Envíos de operadores</h1>
         <p style="font-size:0.85rem;color:#64748b;margin:0;">Revisa y aprueba los registros de beneficiarios.</p>
@@ -49,6 +49,25 @@
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
           Refrescar
         </button>
+      </div>
+    </div>
+
+    <div id="revisor-stats" style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:1.25rem;">
+      <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:0.55rem 0.9rem;min-width:170px;">
+        <div style="font-size:0.72rem;color:#92400e;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Pendientes asignadas</div>
+        <div id="stat-pending-mine" style="font-size:1.35rem;font-weight:800;color:#92400e;">—</div>
+      </div>
+      <div style="background:#dbeafe;border:1px solid #93c5fd;border-radius:8px;padding:0.55rem 0.9rem;min-width:170px;">
+        <div style="font-size:0.72rem;color:#1e40af;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Total revisadas</div>
+        <div id="stat-reviewed-mine" style="font-size:1.35rem;font-weight:800;color:#1e40af;">—</div>
+      </div>
+      <div style="background:#d1fae5;border:1px solid #6ee7b7;border-radius:8px;padding:0.55rem 0.9rem;min-width:170px;">
+        <div style="font-size:0.72rem;color:#065f46;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Aprobadas</div>
+        <div id="stat-approved-mine" style="font-size:1.35rem;font-weight:800;color:#065f46;">—</div>
+      </div>
+      <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:0.55rem 0.9rem;min-width:170px;">
+        <div style="font-size:0.72rem;color:#991b1b;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Rechazadas</div>
+        <div id="stat-rejected-mine" style="font-size:1.35rem;font-weight:800;color:#991b1b;">—</div>
       </div>
     </div>
 
