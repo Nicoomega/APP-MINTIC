@@ -223,10 +223,13 @@ router.post('/clear-reviewer-pending', [
 
 // ── POST /api/admin/assign-reviews ────────────────────────────────────────────
 // Body: { reviewerIds: [number] }
-// Rebalanceo equitativo por CARGA TOTAL (reviewed_total + asignados pendientes).
-// Re-junta TODOS los pendientes que están sin asignar o asignados a revisores del pool,
-// y los reparte mediante greedy por menor carga proyectada, así un revisor nuevo con 0
-// recibe el lote inicial más grande hasta equilibrar contra los antiguos.
+// Distribución EQUITATIVA por round-robin entre los revisores marcados.
+// Cada revisor recibe ⌈N/k⌉ o ⌊N/k⌋ envíos (diferencia máxima de 1 entre cualquier par).
+// El historial de revisiones (reviewed_total) NO afecta la distribución: nadie recibe
+// más trabajo nuevo por haber trabajado más en el pasado.
+//
+// Pool a repartir: pendientes sin asignar + pendientes asignados a revisores DEL POOL
+// (esto permite rebalancear si la carga actual quedó desigual).
 // NO toca pendientes asignados a revisores que NO estén en el pool.
 router.post('/assign-reviews', [
   body('reviewerIds').isArray({ min: 1 }).withMessage('Debe seleccionar al menos un revisor.'),
@@ -259,27 +262,19 @@ router.post('/assign-reviews', [
     ORDER BY COALESCE(submitted_at, created_at) ASC, id ASC
   `).all(...validIds);
 
-  // Carga base (reviewed_total) por revisor — los del pool no cuentan como carga base
-  // porque van a redistribuirse. Los revisores fuera del pool con asignaciones quedan
-  // intactos (no son ni reciben).
-  const baseLoad = new Map();
-  for (const r of valid) {
-    const reviewed = db.prepare(
-      `SELECT COUNT(*) AS c FROM submissions WHERE reviewer_id = ?`
-    ).get(r.id).c;
-    baseLoad.set(r.id, { id: r.id, username: r.username, base: reviewed, count: 0 });
-  }
+  // Orden estable de los revisores para round-robin determinista
+  const sorted = [...valid].sort((a, b) => a.id - b.id);
+  const counts = new Map(sorted.map(r => [r.id, { id: r.id, username: r.username, count: 0 }]));
 
   if (!pool.length) {
     return res.json({
       message: 'No hay envíos pendientes para distribuir.',
       assigned: 0,
-      distribution: [...baseLoad.values()].map(({ id, username, count }) => ({ id, username, count })),
+      distribution: [...counts.values()],
     });
   }
 
-  // Greedy: por cada envío, asignarlo al revisor con MENOR carga proyectada (base + ya asignado en esta corrida).
-  // Empates: por menor id (orden estable). Esto da más al de menor reviewed_total.
+  // Round-robin puro: el envío i va al revisor sorted[i % k]
   const update = db.prepare(`
     UPDATE submissions
     SET    assigned_reviewer_id = ?, updated_at = CURRENT_TIMESTAMP
@@ -287,26 +282,18 @@ router.post('/assign-reviews', [
   `);
 
   const tx = db.transaction(() => {
-    for (const sub of pool) {
-      let pick = null;
-      let pickLoad = Infinity;
-      for (const r of baseLoad.values()) {
-        const projected = r.base + r.count;
-        if (projected < pickLoad || (projected === pickLoad && pick && r.id < pick.id)) {
-          pick = r;
-          pickLoad = projected;
-        }
-      }
-      update.run(pick.id, sub.id);
-      pick.count++;
-    }
+    pool.forEach((sub, i) => {
+      const reviewer = sorted[i % sorted.length];
+      update.run(reviewer.id, sub.id);
+      counts.get(reviewer.id).count++;
+    });
   });
   tx();
 
   return res.json({
-    message: `Se distribuyeron ${pool.length} envío(s) entre ${valid.length} revisor(es) por carga total.`,
+    message: `Se distribuyeron ${pool.length} envío(s) entre ${valid.length} revisor(es) en partes iguales.`,
     assigned: pool.length,
-    distribution: [...baseLoad.values()].map(({ id, username, count, base }) => ({ id, username, count, base_reviewed: base })),
+    distribution: [...counts.values()],
   });
 });
 
