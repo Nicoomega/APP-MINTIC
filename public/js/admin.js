@@ -144,6 +144,46 @@ let pendingDeleteId   = null;
 let pendingDeleteRole = null;
 
 // ── Asignación de revisiones ─────────────────────────────────────────────────
+function updatePoolCounter() {
+  const checked = document.querySelectorAll('.asignar-check:checked').length;
+  const num = document.getElementById('stat-pool-num');
+  if (num) num.textContent = checked;
+}
+
+function flashPoolSaved() {
+  const tag = document.getElementById('stat-pool-saved');
+  if (!tag) return;
+  tag.classList.remove('d-none');
+  clearTimeout(flashPoolSaved._t);
+  flashPoolSaved._t = setTimeout(() => tag.classList.add('d-none'), 1800);
+}
+
+// Debounce + cancelación: si el admin marca/desmarca varias veces seguidas,
+// solo se guarda el estado final.
+let savePoolTimer = null;
+let savePoolAbort = null;
+async function savePoolDebounced() {
+  updatePoolCounter();
+  clearTimeout(savePoolTimer);
+  savePoolTimer = setTimeout(async () => {
+    const ids = [...document.querySelectorAll('.asignar-check:checked')].map(c => Number(c.dataset.id));
+    if (savePoolAbort) savePoolAbort.abort();
+    savePoolAbort = new AbortController();
+    try {
+      const res = await fetch('/api/admin/auto-assign-pool', {
+        method:      'POST',
+        headers:     { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body:        JSON.stringify({ reviewerIds: ids }),
+        signal:      savePoolAbort.signal,
+      });
+      if (res.ok) flashPoolSaved();
+    } catch (e) {
+      if (e.name !== 'AbortError') console.warn('No se pudo guardar el pool:', e);
+    }
+  }, 400);
+}
+
 async function loadAssignmentOverview() {
   const container = document.getElementById('asignar-list-container');
   try {
@@ -156,6 +196,7 @@ async function loadAssignmentOverview() {
     document.getElementById('count-pending').textContent   = pending_unassigned;
 
     if (!reviewers.length) {
+      document.getElementById('stat-pool-num').textContent = '0';
       container.innerHTML = `
         <div class="empty-state" style="padding:1.5rem 1rem;">
           <p style="margin:0;font-size:0.85rem;color:#94a3b8;">No hay revisores registrados. Crea al menos uno en la pestaña "Revisores MINTIC".</p>
@@ -168,7 +209,7 @@ async function loadAssignmentOverview() {
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width:42px;"></th>
+              <th style="width:42px;" title="Marca para incluir al revisor en el pool de asignación automática">Auto</th>
               <th>Revisor</th>
               <th>Correo</th>
               <th style="text-align:right;">Asignados pendientes</th>
@@ -178,9 +219,12 @@ async function loadAssignmentOverview() {
           </thead>
           <tbody>
             ${reviewers.map(r => `
-              <tr>
-                <td><input type="checkbox" class="asignar-check" data-id="${r.id}" checked /></td>
-                <td style="font-weight:600;">${escapeHtml(r.username)}</td>
+              <tr${r.auto_assign ? ' style="background:#f0fdf4;"' : ''}>
+                <td><input type="checkbox" class="asignar-check" data-id="${r.id}" ${r.auto_assign ? 'checked' : ''} /></td>
+                <td style="font-weight:600;">
+                  ${escapeHtml(r.username)}
+                  ${r.auto_assign ? '<span style="display:inline-block;margin-left:0.4rem;background:#dcfce7;color:#15803d;font-size:0.65rem;font-weight:700;padding:0.1rem 0.4rem;border-radius:99px;border:1px solid #86efac;">AUTO</span>' : ''}
+                </td>
                 <td style="color:#64748b;font-size:0.83rem;">${escapeHtml(r.email)}</td>
                 <td style="text-align:right;font-weight:700;color:#92400e;">${r.assigned_pending}</td>
                 <td style="text-align:right;color:#1e40af;font-weight:700;">${r.reviewed_total}</td>
@@ -199,8 +243,136 @@ async function loadAssignmentOverview() {
           </tbody>
         </table>
       </div>`;
+
+    updatePoolCounter();
+
+    // Auto-guardar el pool cuando cambia cualquier checkbox
+    container.querySelectorAll('.asignar-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        // Sombrear/desombrear la fila inmediatamente para feedback visual
+        const row = cb.closest('tr');
+        if (row) row.style.background = cb.checked ? '#f0fdf4' : '';
+        savePoolDebounced();
+      });
+    });
   } catch (err) {
     container.innerHTML = `<div class="alert alert-danger small">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+// ── Respaldo de datos ────────────────────────────────────────────────────────
+function formatBytes(bytes) {
+  if (!bytes || bytes < 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let n = bytes;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(n < 10 && i > 0 ? 2 : 1)} ${units[i]}`;
+}
+
+async function loadBackupSummary() {
+  try {
+    const res = await fetch('/api/admin/backup-summary', { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('No se pudo obtener el resumen.');
+    const data = await res.json();
+
+    document.getElementById('stat-bk-envios').textContent        = data.counts.submissions ?? 0;
+    document.getElementById('stat-bk-archivos').textContent      = data.files_on_disk ?? 0;
+    document.getElementById('stat-bk-observaciones').textContent = data.counts.review_fields ?? 0;
+    document.getElementById('stat-bk-usuarios').textContent      = data.counts.users ?? 0;
+    document.getElementById('stat-bk-tamano').textContent        = formatBytes((data.uploads_bytes || 0) + (data.db_bytes || 0));
+  } catch {
+    ['stat-bk-envios','stat-bk-archivos','stat-bk-observaciones','stat-bk-usuarios','stat-bk-tamano'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = 'Error';
+    });
+  }
+}
+
+function showRespaldoAlert(msg, type = 'danger') {
+  const box = document.getElementById('respaldo-alert');
+  if (!box) return;
+  box.innerHTML = `<div class="alert alert-${type}" style="margin:0;">${escapeHtml(msg)}</div>`;
+  box.classList.remove('d-none');
+}
+
+async function handleDownloadBackup() {
+  const btn     = document.getElementById('btn-descargar-respaldo');
+  const spinner = document.getElementById('spinner-respaldo');
+  const alertBox = document.getElementById('respaldo-alert');
+  alertBox?.classList.add('d-none');
+
+  if (!confirm('Se descargará un archivo ZIP con TODA la base de datos, los documentos PDF, imágenes y observaciones. Puede pesar varios MB. ¿Continuar?')) {
+    return;
+  }
+
+  spinner.classList.remove('d-none');
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/admin/backup-completo.zip', { credentials: 'same-origin' });
+    if (!res.ok) {
+      let msg = 'No se pudo generar el respaldo.';
+      try { const data = await res.json(); msg = data.error ?? msg; } catch { /* ignore */ }
+      showRespaldoAlert(msg);
+      return;
+    }
+
+    const blob = await res.blob();
+    const today = new Date().toISOString().slice(0, 10);
+    const url   = URL.createObjectURL(blob);
+    const a     = document.createElement('a');
+    a.href      = url;
+    a.download  = `backup-mintic-${today}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+
+    showRespaldoAlert(`Respaldo descargado correctamente (${formatBytes(blob.size)}).`, 'success');
+  } catch (e) {
+    showRespaldoAlert('Error de conexión al descargar el respaldo.');
+  } finally {
+    spinner.classList.add('d-none');
+    btn.disabled = false;
+  }
+}
+
+async function handleDownloadDatabase() {
+  const btn     = document.getElementById('btn-descargar-db');
+  const spinner = document.getElementById('spinner-db');
+  const alertBox = document.getElementById('respaldo-alert');
+  alertBox?.classList.add('d-none');
+
+  spinner.classList.remove('d-none');
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/admin/database.sqlite', { credentials: 'same-origin' });
+    if (!res.ok) {
+      let msg = 'No se pudo descargar la base de datos.';
+      try { const data = await res.json(); msg = data.error ?? msg; } catch { /* ignore */ }
+      showRespaldoAlert(msg);
+      return;
+    }
+
+    const blob  = await res.blob();
+    const today = new Date().toISOString().slice(0, 10);
+    const url   = URL.createObjectURL(blob);
+    const a     = document.createElement('a');
+    a.href      = url;
+    a.download  = `database-mintic-${today}.sqlite`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+
+    showRespaldoAlert(`Base de datos descargada correctamente (${formatBytes(blob.size)}).`, 'success');
+  } catch {
+    showRespaldoAlert('Error de conexión al descargar la base de datos.');
+  } finally {
+    spinner.classList.add('d-none');
+    btn.disabled = false;
   }
 }
 
@@ -222,6 +394,14 @@ async function handleAssignReviews() {
   btn.disabled = true;
 
   try {
+    // Guardar también el pool persistente para que los próximos envíos vayan a estos revisores
+    await fetch('/api/admin/auto-assign-pool', {
+      method:      'POST',
+      headers:     { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body:        JSON.stringify({ reviewerIds }),
+    }).catch(() => { /* no bloquear el flujo si falla */ });
+
     const res  = await fetch('/api/admin/assign-reviews', {
       method:      'POST',
       headers:     { 'Content-Type': 'application/json' },
@@ -237,6 +417,7 @@ async function handleAssignReviews() {
       resultBox.innerHTML = `
         <div class="alert alert-success" style="margin:0;">
           <div style="font-weight:700;margin-bottom:0.35rem;">${escapeHtml(data.message)}</div>
+          <div style="font-size:0.78rem;color:#15803d;margin-bottom:0.35rem;">✓ Pool de asignación automática actualizado. Los próximos envíos se asignarán a estos revisores.</div>
           <ul style="margin:0;padding-left:1.1rem;font-size:0.85rem;">${rows}</ul>
         </div>`;
       resultBox.classList.remove('d-none');
@@ -282,18 +463,34 @@ async function handleAssignReviews() {
       btn.classList.add('active');
       document.getElementById(btn.dataset.target)?.classList.add('active');
       // Refrescar la vista de asignación al entrar en ella
-      if (btn.dataset.target === 'panel-asignar') loadAssignmentOverview();
+      if (btn.dataset.target === 'panel-asignar')  loadAssignmentOverview();
+      if (btn.dataset.target === 'panel-respaldo') loadBackupSummary();
     });
   });
+
+  // ── Respaldo de datos ─────────────────────────────────────────────────────
+  document.getElementById('btn-refrescar-respaldo')?.addEventListener('click', loadBackupSummary);
+  document.getElementById('btn-descargar-respaldo')?.addEventListener('click', handleDownloadBackup);
+  document.getElementById('btn-descargar-db')?.addEventListener('click', handleDownloadDatabase);
 
   // ── Asignación de revisiones ──────────────────────────────────────────────
   document.getElementById('btn-refrescar-asignacion')?.addEventListener('click', loadAssignmentOverview);
   document.getElementById('btn-asignar-confirmar')?.addEventListener('click', handleAssignReviews);
   document.getElementById('btn-asignar-todos')?.addEventListener('click', () => {
-    document.querySelectorAll('.asignar-check').forEach(c => { c.checked = true; });
+    document.querySelectorAll('.asignar-check').forEach(c => {
+      c.checked = true;
+      const row = c.closest('tr');
+      if (row) row.style.background = '#f0fdf4';
+    });
+    savePoolDebounced();
   });
   document.getElementById('btn-asignar-ninguno')?.addEventListener('click', () => {
-    document.querySelectorAll('.asignar-check').forEach(c => { c.checked = false; });
+    document.querySelectorAll('.asignar-check').forEach(c => {
+      c.checked = false;
+      const row = c.closest('tr');
+      if (row) row.style.background = '';
+    });
+    savePoolDebounced();
   });
 
   // ── Liberar asignaciones pendientes de un revisor (delegado) ──────────────

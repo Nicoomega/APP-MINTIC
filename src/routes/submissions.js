@@ -85,6 +85,42 @@ function deleteFiles(paths) {
   for (const p of paths) { try { fs.unlinkSync(p); } catch { /* ignore */ } }
 }
 
+// Asigna el envío indicado al revisor del pool de asignación automática con menor
+// carga total (revisados + pendientes asignados). Devuelve el id del revisor elegido,
+// o null si el pool está vacío. Es seguro llamarla dentro de una transacción.
+function autoAssignFromPool(submissionId) {
+  const pool = db.prepare(`
+    SELECT
+      u.id,
+      (SELECT COUNT(*) FROM submissions s WHERE s.reviewer_id = u.id) AS reviewed_total,
+      (SELECT COUNT(*) FROM submissions s
+        WHERE s.assigned_reviewer_id = u.id AND s.status = 'pendiente_revision') AS assigned_pending
+    FROM users u
+    WHERE u.role = 'revisor' AND u.auto_assign = 1
+  `).all();
+
+  if (!pool.length) return null;
+
+  let pick = null;
+  let pickLoad = Infinity;
+  for (const r of pool) {
+    const load = r.reviewed_total + r.assigned_pending;
+    if (load < pickLoad || (load === pickLoad && pick && r.id < pick.id)) {
+      pick = r;
+      pickLoad = load;
+    }
+  }
+  if (!pick) return null;
+
+  db.prepare(`
+    UPDATE submissions
+    SET    assigned_reviewer_id = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE  id = ?
+  `).run(pick.id, submissionId);
+
+  return pick.id;
+}
+
 async function countPdfPages(filePath) {
   try {
     const buf  = fs.readFileSync(filePath);
@@ -210,10 +246,19 @@ router.post('/', authenticateToken, requireRole('operador'), (req, res) => {
             const f = req.files[field][0];
             insertFile.run(subId, field, f.filename, f.originalname, f.mimetype, f.size);
           }
-          return subId;
+          // Asignación automática inmediata si hay revisores en el pool.
+          // Si el pool está vacío, el envío queda sin asignar para reparto manual posterior.
+          const assignedTo = autoAssignFromPool(subId);
+          return { subId, assignedTo };
         });
-        const subId = save();
-        return res.status(201).json({ message: 'Envío creado. En espera de revisión.', submissionId: subId });
+        const { subId, assignedTo } = save();
+        return res.status(201).json({
+          message: assignedTo
+            ? 'Envío creado y asignado automáticamente a un revisor.'
+            : 'Envío creado. En espera de revisión.',
+          submissionId: subId,
+          assigned_reviewer_id: assignedTo,
+        });
       } catch (txErr) {
         // Carrera: alguien insertó el mismo documento entre el chequeo y el INSERT.
         // El índice único parcial lanza SQLITE_CONSTRAINT_UNIQUE.

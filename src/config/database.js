@@ -132,6 +132,15 @@ function runMigrations() {
     db.pragma('user_version = 6');
     console.log('Migración v6 aplicada: campos de documento del propietario añadidos a submissions.');
   }
+
+  if (getVersion() < 7) {
+    // Pool de asignación automática: revisores marcados con auto_assign=1 reciben
+    // automáticamente cada nuevo envío en cuanto se crea, balanceando la carga total.
+    try { db.exec(`ALTER TABLE users ADD COLUMN auto_assign INTEGER NOT NULL DEFAULT 0`); } catch { /* ya existe */ }
+    try { db.exec(`CREATE INDEX IF NOT EXISTS idx_users_auto_assign ON users(auto_assign) WHERE auto_assign = 1`); } catch { /* ya existe */ }
+    db.pragma('user_version = 7');
+    console.log('Migración v7 aplicada: columna auto_assign añadida a users (pool de asignación automática).');
+  }
 }
 
 function initDatabase() {

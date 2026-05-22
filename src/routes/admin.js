@@ -1,7 +1,11 @@
 'use strict';
-const express = require('express');
-const bcrypt  = require('bcryptjs');
-const ExcelJS = require('exceljs');
+const express  = require('express');
+const bcrypt   = require('bcryptjs');
+const ExcelJS  = require('exceljs');
+const archiver = require('archiver');
+const path     = require('path');
+const fs       = require('fs');
+const os       = require('os');
 const { body, param, query, validationResult } = require('express-validator');
 const { db }  = require('../config/database');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
@@ -172,11 +176,13 @@ router.delete('/users/:id', [
 });
 
 // ── GET /api/admin/assignment-overview ────────────────────────────────────────
-// Estado actual de asignaciones: revisores con sus cargas + pendientes sin asignar
+// Estado actual de asignaciones: revisores con sus cargas + pendientes sin asignar.
+// El campo auto_assign indica si el revisor está en el pool de asignación automática.
 router.get('/assignment-overview', (_req, res) => {
   const reviewers = db.prepare(`
     SELECT
       u.id, u.username, u.email,
+      u.auto_assign,
       (SELECT COUNT(*) FROM submissions s
         WHERE s.assigned_reviewer_id = u.id AND s.status = 'pendiente_revision') AS assigned_pending,
       (SELECT COUNT(*) FROM submissions s
@@ -192,6 +198,49 @@ router.get('/assignment-overview', (_req, res) => {
   `).get().cnt;
 
   return res.json({ reviewers, pending_unassigned: pendingUnassigned });
+});
+
+// ── POST /api/admin/auto-assign-pool ──────────────────────────────────────────
+// Body: { reviewerIds: [number] }
+// Persiste qué revisores forman parte del pool de asignación automática.
+// Los nuevos envíos que entren después se asignarán automáticamente al revisor
+// del pool con menor carga total (revisados + pendientes asignados).
+// Si el array está vacío, NADIE recibe asignación automática (envíos quedan sin asignar).
+router.post('/auto-assign-pool', [
+  body('reviewerIds').isArray().withMessage('reviewerIds debe ser un arreglo (puede estar vacío).'),
+  body('reviewerIds.*').isInt({ min: 1 }).withMessage('IDs de revisor inválidos.'),
+], (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+  const ids = [...new Set((req.body.reviewerIds || []).map(Number))];
+
+  // Validar que todos sean revisores reales
+  if (ids.length) {
+    const placeholders = ids.map(() => '?').join(',');
+    const valid = db.prepare(
+      `SELECT id FROM users WHERE role = 'revisor' AND id IN (${placeholders})`
+    ).all(...ids);
+    if (valid.length !== ids.length) {
+      return res.status(400).json({ error: 'Uno o más IDs no corresponden a revisores válidos.' });
+    }
+  }
+
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE users SET auto_assign = 0 WHERE role = 'revisor'`).run();
+    if (ids.length) {
+      const placeholders = ids.map(() => '?').join(',');
+      db.prepare(`UPDATE users SET auto_assign = 1 WHERE role = 'revisor' AND id IN (${placeholders})`).run(...ids);
+    }
+  });
+  tx();
+
+  return res.json({
+    message: ids.length
+      ? `Pool de asignación automática actualizado: ${ids.length} revisor(es) activo(s).`
+      : 'Pool de asignación automática desactivado. Los nuevos envíos quedarán sin asignar.',
+    pool_size: ids.length,
+  });
 });
 
 // ── POST /api/admin/clear-reviewer-pending ────────────────────────────────────
@@ -370,5 +419,373 @@ router.get('/reviewers-report.xlsx', async (_req, res) => {
   await wb.xlsx.write(res);
   res.end();
 });
+
+// ── GET /api/admin/backup-summary ─────────────────────────────────────────────
+// Estadísticas previas para mostrar al admin antes de descargar
+router.get('/backup-summary', (_req, res) => {
+  try {
+    const UPLOADS_DIR = path.join(__dirname, '../../uploads');
+    const DB_PATH     = path.join(__dirname, '../../data/database.sqlite');
+
+    const counts = {
+      users:            db.prepare('SELECT COUNT(*) AS c FROM users').get().c,
+      submissions:      db.prepare('SELECT COUNT(*) AS c FROM submissions').get().c,
+      submission_files: db.prepare('SELECT COUNT(*) AS c FROM submission_files').get().c,
+      review_fields:    db.prepare('SELECT COUNT(*) AS c FROM review_fields').get().c,
+      responses:        db.prepare('SELECT COUNT(*) AS c FROM responses').get().c,
+      attachments:      db.prepare('SELECT COUNT(*) AS c FROM attachments').get().c,
+    };
+
+    let filesOnDisk = 0;
+    let totalBytes  = 0;
+    if (fs.existsSync(UPLOADS_DIR)) {
+      const entries = fs.readdirSync(UPLOADS_DIR);
+      for (const name of entries) {
+        try {
+          const st = fs.statSync(path.join(UPLOADS_DIR, name));
+          if (st.isFile()) { filesOnDisk++; totalBytes += st.size; }
+        } catch { /* ignore */ }
+      }
+    }
+
+    let dbBytes = 0;
+    try { dbBytes = fs.statSync(DB_PATH).size; } catch { /* ignore */ }
+
+    return res.json({
+      counts,
+      files_on_disk: filesOnDisk,
+      uploads_bytes: totalBytes,
+      db_bytes:      dbBytes,
+      generated_at:  new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error('[backup-summary]', e);
+    return res.status(500).json({ error: 'No se pudo calcular el resumen.' });
+  }
+});
+
+// ── GET /api/admin/backup-completo.zip ────────────────────────────────────────
+// Descarga ZIP con TODO: base de datos, archivos PDF/imágenes subidos,
+// exportación JSON+CSV de todas las tablas, reporte Excel consolidado y manifiesto.
+// Solo accesible para administradores.
+router.get('/backup-completo.zip', async (_req, res) => {
+  const UPLOADS_DIR = path.join(__dirname, '../../uploads');
+  const DB_PATH     = path.join(__dirname, '../../data/database.sqlite');
+
+  const today    = new Date().toISOString().slice(0, 10);
+  const tempDb   = path.join(os.tmpdir(), `backup-mintic-${Date.now()}.sqlite`);
+  const filename = `backup-mintic-${today}.zip`;
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Cache-Control', 'no-store');
+
+  const archive = archiver('zip', { zlib: { level: 9 } });
+
+  // Limpieza del archivo temporal cuando termine la respuesta
+  const cleanup = () => { try { if (fs.existsSync(tempDb)) fs.unlinkSync(tempDb); } catch { /* ignore */ } };
+
+  archive.on('warning', (err) => { if (err.code !== 'ENOENT') console.error('[backup] warning:', err); });
+  archive.on('error',   (err) => { console.error('[backup] error:', err); cleanup(); try { res.end(); } catch { /* ignore */ } });
+  res.on('close', cleanup);
+
+  archive.pipe(res);
+
+  try {
+    // 1) Backup de la base de datos SQLite (método nativo para incluir WAL)
+    try {
+      await db.backup(tempDb);
+      archive.file(tempDb, { name: 'database/database.sqlite' });
+    } catch (e) {
+      console.error('[backup] No se pudo respaldar la DB via API, copiando archivo:', e);
+      if (fs.existsSync(DB_PATH)) archive.file(DB_PATH, { name: 'database/database.sqlite' });
+    }
+
+    // 2) Carpeta uploads/ completa (PDFs e imágenes)
+    if (fs.existsSync(UPLOADS_DIR)) {
+      archive.directory(UPLOADS_DIR, 'uploads');
+    }
+
+    // 3) Exportación JSON de cada tabla
+    const tablas = ['users', 'responses', 'attachments', 'submissions', 'submission_files', 'review_fields', 'revoked_tokens'];
+    for (const t of tablas) {
+      try {
+        const rows = db.prepare(`SELECT * FROM ${t}`).all();
+        archive.append(JSON.stringify(rows, null, 2), { name: `exports/json/${t}.json` });
+      } catch (e) {
+        archive.append(`Error al exportar tabla ${t}: ${e.message}`, { name: `exports/json/${t}.error.txt` });
+      }
+    }
+
+    // 4) CSV consolidado de envíos con sus archivos y observaciones
+    const submissionsFull = db.prepare(`
+      SELECT
+        s.id AS submission_id,
+        s.status,
+        s.url_vitrina,
+        s.url_chatbot,
+        s.owner_doc_type,
+        s.owner_doc_number,
+        s.created_at,
+        s.submitted_at,
+        s.reviewed_at,
+        op.username AS operador,
+        op.email    AS operador_email,
+        rv.username AS revisor,
+        rv.email    AS revisor_email,
+        ar.username AS revisor_asignado
+      FROM   submissions s
+      JOIN   users op ON op.id = s.operator_id
+      LEFT JOIN users rv ON rv.id = s.reviewer_id
+      LEFT JOIN users ar ON ar.id = s.assigned_reviewer_id
+      ORDER BY s.id
+    `).all();
+
+    archive.append(toCsv(submissionsFull), { name: 'exports/csv/envios.csv' });
+
+    // Observaciones de revisión
+    const obs = db.prepare(`
+      SELECT
+        rf.submission_id,
+        rf.field_name AS campo,
+        rf.status     AS estado,
+        rf.comment    AS observacion,
+        rf.reviewed_at,
+        rv.username   AS revisor
+      FROM   review_fields rf
+      LEFT JOIN users rv ON rv.id = rf.reviewer_id
+      ORDER BY rf.submission_id, rf.id
+    `).all();
+    archive.append(toCsv(obs), { name: 'exports/csv/observaciones.csv' });
+
+    // Archivos subidos (lista)
+    const archivos = db.prepare(`
+      SELECT
+        sf.submission_id,
+        sf.field_name      AS campo,
+        sf.original_name   AS nombre_original,
+        sf.stored_name     AS nombre_almacenado,
+        sf.mimetype        AS tipo_mime,
+        sf.size            AS tamano_bytes,
+        sf.created_at
+      FROM   submission_files sf
+      ORDER BY sf.submission_id, sf.id
+    `).all();
+    archive.append(toCsv(archivos), { name: 'exports/csv/archivos_subidos.csv' });
+
+    // Usuarios
+    const usersCsv = db.prepare(`
+      SELECT id, username, email, role, created_at
+      FROM   users ORDER BY id
+    `).all();
+    archive.append(toCsv(usersCsv), { name: 'exports/csv/usuarios.csv' });
+
+    // 5) Reporte Excel consolidado con TODO
+    const xlsxBuf = await buildExcelReport(submissionsFull, obs, archivos, usersCsv);
+    archive.append(xlsxBuf, { name: 'exports/reporte-consolidado.xlsx' });
+
+    // 6) Manifiesto / README
+    const manifest = buildManifest(submissionsFull.length, obs.length, archivos.length, usersCsv.length);
+    archive.append(manifest, { name: 'README.txt' });
+
+    await archive.finalize();
+  } catch (e) {
+    console.error('[backup] Error general:', e);
+    try { archive.abort(); } catch { /* ignore */ }
+    cleanup();
+  }
+});
+
+// ── GET /api/admin/database.sqlite ────────────────────────────────────────────
+// Descarga ÚNICAMENTE el archivo de la base de datos SQLite (sin uploads ni reportes).
+// Usa el método nativo db.backup() para garantizar consistencia incluso con WAL activo.
+router.get('/database.sqlite', async (_req, res) => {
+  const today  = new Date().toISOString().slice(0, 10);
+  const tempDb = path.join(os.tmpdir(), `mintic-db-${Date.now()}.sqlite`);
+
+  try {
+    await db.backup(tempDb);
+  } catch (e) {
+    console.error('[db-download] db.backup falló, copiando archivo directamente:', e);
+    const DB_PATH = path.join(__dirname, '../../data/database.sqlite');
+    try {
+      fs.copyFileSync(DB_PATH, tempDb);
+    } catch (copyErr) {
+      console.error('[db-download] No se pudo copiar la base de datos:', copyErr);
+      return res.status(500).json({ error: 'No se pudo preparar la base de datos para descarga.' });
+    }
+  }
+
+  res.setHeader('Content-Type', 'application/vnd.sqlite3');
+  res.setHeader('Content-Disposition', `attachment; filename="database-mintic-${today}.sqlite"`);
+  res.setHeader('Cache-Control', 'no-store');
+
+  const stream = fs.createReadStream(tempDb);
+  const cleanup = () => { try { fs.unlinkSync(tempDb); } catch { /* ignore */ } };
+
+  stream.on('error', (err) => {
+    console.error('[db-download] error de stream:', err);
+    cleanup();
+    if (!res.headersSent) res.status(500).json({ error: 'Error al enviar la base de datos.' });
+    else res.end();
+  });
+  res.on('close', cleanup);
+  stream.pipe(res);
+});
+
+// ── Helpers para el backup ───────────────────────────────────────────────────
+function toCsv(rows) {
+  if (!rows.length) return '';
+  const cols = Object.keys(rows[0]);
+  const esc  = (v) => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    if (/[",\r\n;]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  const out = [cols.join(',')];
+  for (const r of rows) out.push(cols.map(c => esc(r[c])).join(','));
+  return out.join('\r\n');
+}
+
+async function buildExcelReport(submissions, observaciones, archivos, usuarios) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'MINTIC';
+  wb.created = new Date();
+
+  const styleHeader = (row) => {
+    row.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF059669' } };
+    row.alignment = { vertical: 'middle', horizontal: 'center' };
+    row.height = 22;
+  };
+
+  // Hoja 1: Envíos
+  const wsE = wb.addWorksheet('Envíos', { views: [{ state: 'frozen', ySplit: 1 }] });
+  wsE.columns = [
+    { header: 'ID',               key: 'submission_id',    width: 8 },
+    { header: 'Estado',           key: 'status',           width: 18 },
+    { header: 'URL Vitrina',      key: 'url_vitrina',      width: 38 },
+    { header: 'URL Chatbot',      key: 'url_chatbot',      width: 38 },
+    { header: 'Doc Tipo',         key: 'owner_doc_type',   width: 10 },
+    { header: 'Doc Número',       key: 'owner_doc_number', width: 16 },
+    { header: 'Operador',         key: 'operador',         width: 20 },
+    { header: 'Email operador',   key: 'operador_email',   width: 28 },
+    { header: 'Revisor',          key: 'revisor',          width: 20 },
+    { header: 'Email revisor',    key: 'revisor_email',    width: 28 },
+    { header: 'Revisor asignado', key: 'revisor_asignado', width: 20 },
+    { header: 'Creado',           key: 'created_at',       width: 20 },
+    { header: 'Enviado',          key: 'submitted_at',     width: 20 },
+    { header: 'Revisado',         key: 'reviewed_at',      width: 20 },
+  ];
+  styleHeader(wsE.getRow(1));
+  for (const r of submissions) wsE.addRow(r);
+
+  // Hoja 2: Observaciones
+  const wsO = wb.addWorksheet('Observaciones', { views: [{ state: 'frozen', ySplit: 1 }] });
+  wsO.columns = [
+    { header: 'Envío ID',     key: 'submission_id', width: 10 },
+    { header: 'Campo',        key: 'campo',         width: 28 },
+    { header: 'Estado',       key: 'estado',        width: 14 },
+    { header: 'Observación',  key: 'observacion',   width: 60 },
+    { header: 'Revisado el',  key: 'reviewed_at',   width: 20 },
+    { header: 'Revisor',      key: 'revisor',       width: 20 },
+  ];
+  styleHeader(wsO.getRow(1));
+  for (const r of observaciones) wsO.addRow(r);
+  wsO.getColumn('observacion').alignment = { wrapText: true, vertical: 'top' };
+
+  // Hoja 3: Archivos
+  const wsA = wb.addWorksheet('Archivos', { views: [{ state: 'frozen', ySplit: 1 }] });
+  wsA.columns = [
+    { header: 'Envío ID',          key: 'submission_id',     width: 10 },
+    { header: 'Campo',             key: 'campo',             width: 28 },
+    { header: 'Nombre original',   key: 'nombre_original',   width: 38 },
+    { header: 'Nombre almacenado', key: 'nombre_almacenado', width: 40 },
+    { header: 'Tipo MIME',         key: 'tipo_mime',         width: 22 },
+    { header: 'Tamaño (bytes)',    key: 'tamano_bytes',      width: 16 },
+    { header: 'Creado',            key: 'created_at',        width: 20 },
+  ];
+  styleHeader(wsA.getRow(1));
+  for (const r of archivos) wsA.addRow(r);
+
+  // Hoja 4: Usuarios
+  const wsU = wb.addWorksheet('Usuarios', { views: [{ state: 'frozen', ySplit: 1 }] });
+  wsU.columns = [
+    { header: 'ID',         key: 'id',         width: 8 },
+    { header: 'Usuario',    key: 'username',   width: 22 },
+    { header: 'Correo',     key: 'email',      width: 30 },
+    { header: 'Rol',        key: 'role',       width: 14 },
+    { header: 'Creado',     key: 'created_at', width: 20 },
+  ];
+  styleHeader(wsU.getRow(1));
+  for (const r of usuarios) wsU.addRow(r);
+
+  return await wb.xlsx.writeBuffer();
+}
+
+function buildManifest(numEnvios, numObs, numArchivos, numUsuarios) {
+  const now = new Date().toLocaleString('es-CO');
+  return [
+    '===========================================================',
+    '   RESPALDO COMPLETO — MINTIC · APLICATIVO CUESTIONARIO',
+    '===========================================================',
+    '',
+    `Generado: ${now}`,
+    '',
+    'Contenido del archivo ZIP:',
+    '',
+    '  database/database.sqlite',
+    '      Copia íntegra de la base de datos SQLite. Se puede abrir con',
+    '      DB Browser for SQLite (https://sqlitebrowser.org) o con cualquier',
+    '      cliente compatible con SQLite 3.',
+    '',
+    '  uploads/',
+    '      TODOS los archivos PDF e imágenes subidos por los operadores',
+    '      (cédulas, informes, certificados, planillas, evidencias, etc.).',
+    '      El nombre interno (UUID) coincide con el campo "stored_name"',
+    '      de la tabla submission_files. Para conocer el nombre original',
+    '      revisa exports/csv/archivos_subidos.csv o la hoja "Archivos"',
+    '      del reporte Excel.',
+    '',
+    '  exports/json/',
+    '      Una exportación en formato JSON por cada tabla de la base de',
+    '      datos (users, submissions, submission_files, review_fields,',
+    '      responses, attachments, revoked_tokens).',
+    '',
+    '  exports/csv/',
+    '      envios.csv             - Envíos consolidados con operador/revisor.',
+    '      observaciones.csv      - Todas las observaciones de los revisores.',
+    '      archivos_subidos.csv   - Listado de archivos con metadatos.',
+    '      usuarios.csv           - Listado de usuarios (sin contraseñas).',
+    '',
+    '  exports/reporte-consolidado.xlsx',
+    '      Libro de Excel con cuatro hojas: Envíos, Observaciones,',
+    '      Archivos y Usuarios. Listo para abrir directamente en Excel.',
+    '',
+    '  README.txt',
+    '      Este archivo.',
+    '',
+    '-----------------------------------------------------------',
+    'Resumen del respaldo',
+    '-----------------------------------------------------------',
+    `  Envíos totales:        ${numEnvios}`,
+    `  Observaciones totales: ${numObs}`,
+    `  Archivos totales:      ${numArchivos}`,
+    `  Usuarios totales:      ${numUsuarios}`,
+    '',
+    '-----------------------------------------------------------',
+    'NOTAS DE SEGURIDAD',
+    '-----------------------------------------------------------',
+    '  - Este respaldo contiene datos personales y documentos. Guárdalo',
+    '    en un medio cifrado y limita su acceso a personal autorizado.',
+    '  - Las contraseñas se almacenan como hashes bcrypt en la tabla',
+    '    users.password_hash; aún así, trata la base de datos como',
+    '    información sensible.',
+    '  - Para restaurar el sistema basta con colocar database.sqlite en',
+    '    la carpeta data/ y la carpeta uploads/ en la raíz del proyecto.',
+    '',
+  ].join('\r\n');
+}
 
 module.exports = router;

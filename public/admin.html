@@ -57,6 +57,10 @@
         Asignar revisiones
         <span id="count-pending" style="background:#fef3c7;color:#92400e;font-size:0.7rem;font-weight:700;padding:0.1rem 0.5rem;border-radius:99px;border:1px solid #fcd34d;">0</span>
       </button>
+      <button class="tab-btn" id="tab-respaldo" data-target="panel-respaldo">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"/></svg>
+        Respaldo de datos
+      </button>
     </div>
 
     <!-- Panel revisores -->
@@ -152,11 +156,11 @@
         </div>
         <div class="card-body">
           <p style="font-size:0.85rem;color:#475569;margin:0 0 0.75rem;">
-            Selecciona los revisores que participarán y haz clic en <strong>Asignar equitativamente</strong>.
-            Los envíos se reparten de modo que la <strong>carga total</strong> de cada revisor
-            (envíos ya revisados + nuevos asignados) quede lo más pareja posible. Quien ya ha revisado más
-            tiendas <strong>no recibe envíos nuevos</strong> hasta que los demás lo alcancen — así no se castiga
-            por el trabajo previo.
+            Marca los revisores que formarán parte del <strong>pool de asignación automática</strong>.
+            La selección se <strong>guarda automáticamente</strong> y cada nuevo envío que entre se
+            asignará al revisor del pool con menor carga total (envíos ya revisados + asignados pendientes),
+            manteniendo el reparto equilibrado. Usa <strong>Asignar equitativamente</strong> para
+            distribuir además los envíos pendientes que ya estaban en cola.
           </p>
 
           <div id="asignar-stats" style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:1rem;">
@@ -167,6 +171,13 @@
             <div style="background:#dbeafe;border:1px solid #93c5fd;border-radius:8px;padding:0.55rem 0.9rem;">
               <div style="font-size:0.72rem;color:#1e40af;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Revisores registrados</div>
               <div id="stat-revisores" style="font-size:1.25rem;font-weight:800;color:#1e40af;">—</div>
+            </div>
+            <div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:0.55rem 0.9rem;">
+              <div style="font-size:0.72rem;color:#15803d;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">En pool automático</div>
+              <div id="stat-pool" style="font-size:1.25rem;font-weight:800;color:#15803d;display:flex;align-items:baseline;gap:0.4rem;">
+                <span id="stat-pool-num">—</span>
+                <span id="stat-pool-saved" class="d-none" style="font-size:0.65rem;color:#15803d;font-weight:600;">✓ guardado</span>
+              </div>
             </div>
           </div>
 
@@ -186,6 +197,81 @@
               <span id="spinner-asignar" class="d-none"><svg class="spinner" style="border-top-color:#fff;width:13px;height:13px;" viewBox="0 0 24 24"></svg></span>
               <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
               Asignar equitativamente
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel respaldo de datos -->
+    <div class="tab-panel" id="panel-respaldo">
+      <div class="card">
+        <div class="card-header">
+          <span style="font-size:0.9rem;font-weight:700;color:#0f172a;display:flex;align-items:center;gap:0.5rem;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#0284c7" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10a2 2 0 002 2h12a2 2 0 002-2V9a2 2 0 00-2-2h-5l-2-2H6a2 2 0 00-2 2z"/></svg>
+            Descarga total del aplicativo
+          </span>
+          <button class="btn btn-ghost btn-sm" id="btn-refrescar-respaldo" title="Refrescar resumen">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            Refrescar
+          </button>
+        </div>
+        <div class="card-body">
+          <p style="font-size:0.85rem;color:#475569;margin:0 0 0.85rem;">
+            Genera un archivo <strong>.zip</strong> con <strong>absolutamente todo</strong> el contenido del aplicativo:
+            la base de datos completa, todos los PDFs e imágenes subidos por los operadores,
+            las observaciones de los revisores y reportes consolidados en CSV y Excel.
+            El archivo se descarga directamente a tu equipo y no se guarda en el servidor.
+          </p>
+
+          <div id="respaldo-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.6rem;margin-bottom:1rem;">
+            <div style="background:#dbeafe;border:1px solid #93c5fd;border-radius:8px;padding:0.6rem 0.85rem;">
+              <div style="font-size:0.7rem;color:#1e40af;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Envíos</div>
+              <div id="stat-bk-envios" style="font-size:1.3rem;font-weight:800;color:#1e40af;">—</div>
+            </div>
+            <div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:0.6rem 0.85rem;">
+              <div style="font-size:0.7rem;color:#15803d;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Archivos PDF/imágenes</div>
+              <div id="stat-bk-archivos" style="font-size:1.3rem;font-weight:800;color:#15803d;">—</div>
+            </div>
+            <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:0.6rem 0.85rem;">
+              <div style="font-size:0.7rem;color:#92400e;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Observaciones</div>
+              <div id="stat-bk-observaciones" style="font-size:1.3rem;font-weight:800;color:#92400e;">—</div>
+            </div>
+            <div style="background:#ede9fe;border:1px solid #c4b5fd;border-radius:8px;padding:0.6rem 0.85rem;">
+              <div style="font-size:0.7rem;color:#6d28d9;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Usuarios</div>
+              <div id="stat-bk-usuarios" style="font-size:1.3rem;font-weight:800;color:#6d28d9;">—</div>
+            </div>
+            <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:0.6rem 0.85rem;">
+              <div style="font-size:0.7rem;color:#b91c1c;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Tamaño aproximado</div>
+              <div id="stat-bk-tamano" style="font-size:1.3rem;font-weight:800;color:#b91c1c;">—</div>
+            </div>
+          </div>
+
+          <div style="background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;padding:0.85rem 1rem;margin-bottom:1rem;">
+            <div style="font-size:0.78rem;font-weight:700;color:#0f172a;margin-bottom:0.45rem;">El archivo ZIP contiene:</div>
+            <ul style="margin:0;padding-left:1.1rem;font-size:0.8rem;color:#475569;line-height:1.65;">
+              <li><code>database/database.sqlite</code> — Base de datos completa.</li>
+              <li><code>uploads/</code> — Todos los PDFs e imágenes subidos.</li>
+              <li><code>exports/json/</code> — JSON de cada tabla de la base de datos.</li>
+              <li><code>exports/csv/</code> — Envíos, observaciones, archivos y usuarios en CSV.</li>
+              <li><code>exports/reporte-consolidado.xlsx</code> — Reporte Excel con todo.</li>
+              <li><code>README.txt</code> — Manifiesto del respaldo.</li>
+            </ul>
+          </div>
+
+          <div id="respaldo-alert" class="d-none" style="margin-bottom:0.85rem;"></div>
+
+          <div style="display:flex;gap:0.5rem;justify-content:flex-end;align-items:center;flex-wrap:wrap;">
+            <span style="font-size:0.75rem;color:#94a3b8;margin-right:auto;">⚠️ El respaldo contiene datos personales. Guárdalo en un medio seguro.</span>
+            <button class="btn btn-ghost btn-sm" id="btn-descargar-db" title="Descargar solo el archivo de base de datos SQLite (sin PDFs)">
+              <span id="spinner-db" class="d-none"><svg class="spinner" style="border-top-color:#059669;width:13px;height:13px;" viewBox="0 0 24 24"></svg></span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
+              Descargar solo BD (.sqlite)
+            </button>
+            <button class="btn btn-primary btn-sm" id="btn-descargar-respaldo">
+              <span id="spinner-respaldo" class="d-none"><svg class="spinner" style="border-top-color:#fff;width:13px;height:13px;" viewBox="0 0 24 24"></svg></span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"/></svg>
+              Descargar respaldo completo (.zip)
             </button>
           </div>
         </div>
