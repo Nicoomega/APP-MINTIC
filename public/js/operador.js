@@ -112,6 +112,37 @@ function showForm(mode = 'nuevo', data = null, reviews = []) {
   okEl.classList.add('d-none');
   document.getElementById('upload-form').reset();
 
+  // ── RESET DE ESTILOS INLINE (fix bug: si vienes del modo "ver" y entras
+  // a "corregir" o "nuevo", los inputs estaban escondidos por style="display:none"
+  // y no se restauraban, haciendo que "Corregir" se viera como "Ver"). ───────
+  const ALL_FILE_FIELDS = ['cedula_pdf','informe_pdf','certificado_pdf','planilla_conecta_pdf',
+                           'planilla_comunicacion_pdf','calificacion_modulos_pdf','evidencia_chatbot'];
+  for (const field of ALL_FILE_FIELDS) {
+    const inputEl = document.getElementById(field);
+    const wrapEl  = document.getElementById(`wrap-${field}`);
+    if (inputEl) {
+      inputEl.style.display = '';
+      inputEl.removeAttribute('disabled');
+      inputEl.removeAttribute('readonly');
+    }
+    if (wrapEl) {
+      wrapEl.style.display = '';
+      const hintEl = wrapEl.querySelector('.form-hint');
+      if (hintEl) hintEl.style.display = '';
+      const reqEl = wrapEl.querySelector('.req');
+      if (reqEl) reqEl.style.display = '';
+    }
+  }
+  for (const field of ['url_vitrina', 'url_chatbot']) {
+    const el = document.getElementById(field);
+    if (el) { el.style.display = ''; el.removeAttribute('readonly'); el.removeAttribute('disabled'); }
+  }
+  // Restablecer badges y bloqueos previos
+  document.querySelectorAll('.field-status-badge').forEach(b => b.remove());
+  document.querySelectorAll('.field-locked').forEach(el => el.classList.remove('field-locked'));
+  // Restablecer botón submit
+  document.getElementById('btn-submit').style.display = '';
+
   if (mode === 'corregir' && data) {
     titulo.textContent    = 'Corregir envío rechazado';
     subtitulo.textContent = 'Reemplaza los documentos con problemas y reenvía a revisión.';
@@ -441,39 +472,32 @@ async function handleSubmit(e) {
   // Submit
   document.getElementById('upload-form').addEventListener('submit', handleSubmit);
 
-  // Delegación: Ver / Corregir
+  // Delegación: Ver / Corregir — usar if/else con guard para evitar carreras.
+  // El handler nunca debe disparar AMBOS modos en el mismo click.
+  let _navInFlight = false;
   document.getElementById('lista-container').addEventListener('click', async (e) => {
-    const detBtn = e.target.closest('.btn-detalle');
+    if (_navInFlight) return;            // Bloquea doble-click rápido
     const corBtn = e.target.closest('.btn-corregir');
-
-    if (detBtn) {
-      const id = detBtn.dataset.id;
-      try {
-        const [subRes, revRes] = await Promise.all([
-          fetch(`/api/submissions/${id}`,  { credentials: 'same-origin' }),
-          fetch(`/api/reviews/${id}`,      { credentials: 'same-origin' }),
-        ]);
-        const subData = await subRes.json();
-        const revData = await revRes.json();
-        showForm('ver', subData, revData.reviews ?? []);
-      } catch {
-        alert('Error al cargar los datos del envío.');
-      }
-    }
-
-    if (corBtn) {
-      const id = corBtn.dataset.id;
-      try {
-        const [subRes, revRes] = await Promise.all([
-          fetch(`/api/submissions/${id}`,  { credentials: 'same-origin' }),
-          fetch(`/api/reviews/${id}`,      { credentials: 'same-origin' }),
-        ]);
-        const subData = await subRes.json();
-        const revData = await revRes.json();
-        showForm('corregir', subData, revData.reviews ?? []);
-      } catch {
-        alert('Error al cargar los datos del envío.');
-      }
+    const detBtn = e.target.closest('.btn-detalle');
+    const targetBtn = corBtn || detBtn;   // Prioridad: Corregir > Ver
+    if (!targetBtn) return;
+    const mode = corBtn ? 'corregir' : 'ver';
+    const id   = targetBtn.dataset.id;
+    _navInFlight = true;
+    targetBtn.disabled = true;
+    try {
+      const [subRes, revRes] = await Promise.all([
+        fetch(`/api/submissions/${id}`, { credentials: 'same-origin' }),
+        fetch(`/api/reviews/${id}`,     { credentials: 'same-origin' }),
+      ]);
+      const subData = await subRes.json();
+      const revData = await revRes.json();
+      showForm(mode, subData, revData.reviews ?? []);
+    } catch {
+      alert('Error al cargar los datos del envío.');
+    } finally {
+      _navInFlight = false;
+      targetBtn.disabled = false;
     }
   });
 })();

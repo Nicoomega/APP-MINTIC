@@ -1,6 +1,40 @@
 /* public/js/admin.js – panel de gestión de credenciales (vanilla, sin Bootstrap) */
 'use strict';
 
+// ── Toasts ────────────────────────────────────────────────────────────────────
+function ensureToastStack() {
+  let stack = document.getElementById('toast-stack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'toast-stack';
+    stack.className = 'toast-stack';
+    document.body.appendChild(stack);
+  }
+  return stack;
+}
+function toast(message, type = 'info', duration = 3500) {
+  const stack = ensureToastStack();
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  const icons = {
+    success: '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="#059669" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>',
+    error:   '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="#dc2626" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>',
+    warning: '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="#d97706" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3l-7.07-12.25a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z"/></svg>',
+    info:    '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="#2563eb" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+  };
+  t.innerHTML = `
+    <div class="toast-icon">${icons[type] || icons.info}</div>
+    <div class="toast-body">${String(message).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>
+    <button class="toast-close" aria-label="Cerrar">×</button>
+  `;
+  stack.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('show'));
+  const remove = () => { t.classList.remove('show'); setTimeout(() => t.remove(), 350); };
+  t.querySelector('.toast-close').addEventListener('click', remove);
+  if (duration > 0) setTimeout(remove, duration);
+  return t;
+}
+
 // ── Modal helpers (vanilla) ───────────────────────────────────────────────────
 function openModal(id) {
   const overlay = document.getElementById(id);
@@ -177,7 +211,10 @@ async function savePoolDebounced() {
         body:        JSON.stringify({ reviewerIds: ids }),
         signal:      savePoolAbort.signal,
       });
-      if (res.ok) flashPoolSaved();
+      if (res.ok) {
+        flashPoolSaved();
+        toast(`Pool de asignación automática actualizado (${ids.length} revisor${ids.length !== 1 ? 'es' : ''}).`, 'success', 2500);
+      }
     } catch (e) {
       if (e.name !== 'AbortError') console.warn('No se pudo guardar el pool:', e);
     }
@@ -257,6 +294,317 @@ async function loadAssignmentOverview() {
     });
   } catch (err) {
     container.innerHTML = `<div class="alert alert-danger small">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
+const dashState = { initialized: false, charts: {}, lastTimelineDays: 30 };
+
+function fmtN(n) {
+  if (typeof n === 'string') return n;                  // strings (ej. "75%", "3 / 5") se devuelven tal cual
+  return Number(n ?? 0).toLocaleString('es-CO');
+}
+function fmtDateShort(s) {
+  if (!s) return '—';
+  return new Date(s).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function renderKpis(k) {
+  const cards = [
+    { label: 'Envíos totales',         value: k.envios_total,        accent: '#0ea5e9', hint: `${fmtN(k.envios_aprobados)} aprobados · ${fmtN(k.envios_rechazados)} rechazados` },
+    { label: 'Pendientes',             value: k.envios_pendientes,   accent: '#d97706', hint: `${fmtN(k.envios_sin_asignar)} sin asignar` },
+    { label: 'Tasa de aprobación',     value: `${k.tasa_aprobacion}%`, accent: '#059669', hint: 'Sobre el total de envíos' },
+    { label: 'Revisiones realizadas',  value: k.revisiones_total,    accent: '#7c3aed', hint: `${fmtN(k.revisores_activos)} revisores activos` },
+    { label: 'Revisores en pool auto', value: `${k.revisores_en_pool} / ${k.revisores_total}`, accent: '#10b981', hint: 'Reciben envíos nuevos automáticamente' },
+    { label: 'Operadores activos',     value: `${k.operadores_activos} / ${k.operadores_total}`, accent: '#f59e0b', hint: 'Que han hecho al menos un envío' },
+  ];
+  document.getElementById('kpi-grid').innerHTML = cards.map(c => `
+    <div class="kpi-card" style="--kpi-accent:${c.accent};">
+      <div class="kpi-label">${c.label}</div>
+      <div class="kpi-value">${fmtN(c.value)}</div>
+      <div class="kpi-hint">${c.hint}</div>
+    </div>
+  `).join('');
+  if (window.gsap) gsap.from('.kpi-card', { y: 14, opacity: 0, stagger: 0.06, duration: 0.4, ease: 'power2.out' });
+}
+
+function chartFontDefaults() {
+  if (window.Chart) {
+    Chart.defaults.font.family = "'Satoshi', system-ui, sans-serif";
+    Chart.defaults.font.size = 12;
+    Chart.defaults.color = '#475569';
+  }
+}
+
+function destroyChart(id) {
+  if (dashState.charts[id]) { dashState.charts[id].destroy(); delete dashState.charts[id]; }
+}
+
+function renderStatusChart(k) {
+  destroyChart('status');
+  const ctx = document.getElementById('chart-status');
+  dashState.charts.status = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Aprobados', 'Rechazados', 'Pendientes'],
+      datasets: [{
+        data: [k.envios_aprobados, k.envios_rechazados, k.envios_pendientes],
+        backgroundColor: ['#10b981', '#ef4444', '#f59e0b'],
+        borderWidth: 0,
+        hoverOffset: 8,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      cutout: '65%',
+      plugins: {
+        legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.label}: ${fmtN(ctx.parsed)} (${(ctx.parsed / (k.envios_total || 1) * 100).toFixed(1)}%)`,
+          },
+        },
+      },
+      animation: { animateRotate: true, animateScale: true, duration: 800 },
+    },
+  });
+}
+
+function renderReviewersChart(reviewers) {
+  destroyChart('reviewers');
+  const top = reviewers.slice(0, 10);
+  const ctx = document.getElementById('chart-reviewers');
+  dashState.charts.reviewers = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: top.map(r => r.username),
+      datasets: [
+        { label: 'Aprobadas', data: top.map(r => r.aprobadas_historico), backgroundColor: '#10b981', stack: 's1' },
+        { label: 'Rechazadas', data: top.map(r => r.rechazadas_historico), backgroundColor: '#ef4444', stack: 's1' },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      indexAxis: 'y',
+      plugins: {
+        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 14 } },
+        tooltip: { mode: 'index', intersect: false },
+      },
+      scales: {
+        x: { stacked: true, grid: { color: '#f1f5f9' }, ticks: { precision: 0 } },
+        y: { stacked: true, grid: { display: false } },
+      },
+      animation: { duration: 600, easing: 'easeOutQuart' },
+    },
+  });
+}
+
+function renderOperatorsChart(operators) {
+  destroyChart('operators');
+  const top = operators.slice(0, 10);
+  const ctx = document.getElementById('chart-operators');
+  dashState.charts.operators = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: top.map(o => o.username),
+      datasets: [
+        { label: 'Aprobados', data: top.map(o => o.envios_aprobados), backgroundColor: '#10b981', stack: 's1' },
+        { label: 'Pendientes', data: top.map(o => o.envios_pendientes), backgroundColor: '#f59e0b', stack: 's1' },
+        { label: 'Rechazados', data: top.map(o => o.envios_rechazados), backgroundColor: '#ef4444', stack: 's1' },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 14 } },
+        tooltip: { mode: 'index', intersect: false },
+      },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { autoSkip: false, maxRotation: 45, minRotation: 30, font: { size: 10 } } },
+        y: { stacked: true, beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { precision: 0 } },
+      },
+      animation: { duration: 600, easing: 'easeOutQuart' },
+    },
+  });
+}
+
+function renderTimelineChart(timeline) {
+  destroyChart('timeline');
+  // Construir todas las fechas del rango para evitar huecos
+  const dias = timeline.dias || 30;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const labels = [];
+  const map = {};
+  for (let i = dias; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const iso = d.toISOString().slice(0, 10);
+    labels.push(iso);
+    map[iso] = { envios: 0, aprobados: 0, rechazados: 0 };
+  }
+  for (const r of (timeline.envios || []))      if (map[r.dia]) map[r.dia].envios = r.cnt;
+  for (const r of (timeline.decisiones || []))  if (map[r.dia]) {
+    if (r.status === 'aprobado')  map[r.dia].aprobados  = r.cnt;
+    if (r.status === 'rechazado') map[r.dia].rechazados = r.cnt;
+  }
+  const labelsShort = labels.map(d => {
+    const dd = new Date(d);
+    return dd.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
+  });
+
+  const ctx = document.getElementById('chart-timeline');
+  dashState.charts.timeline = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labelsShort,
+      datasets: [
+        { label: 'Envíos nuevos',     data: labels.map(d => map[d].envios),     borderColor: '#0ea5e9', backgroundColor: '#0ea5e933', fill: true, tension: 0.35, pointRadius: 2, pointHoverRadius: 5 },
+        { label: 'Decisiones aprobadas',  data: labels.map(d => map[d].aprobados),  borderColor: '#10b981', backgroundColor: '#10b98122', fill: false, tension: 0.35, pointRadius: 2, pointHoverRadius: 5 },
+        { label: 'Decisiones rechazadas', data: labels.map(d => map[d].rechazados), borderColor: '#ef4444', backgroundColor: '#ef444422', fill: false, tension: 0.35, pointRadius: 2, pointHoverRadius: 5 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 14 } },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { autoSkip: true, maxTicksLimit: 12 } },
+        y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { precision: 0 } },
+      },
+      animation: { duration: 600, easing: 'easeOutQuart' },
+    },
+  });
+}
+
+function renderRecentActivity(data) {
+  const cont = document.getElementById('actividad-reciente');
+  const items = [];
+  for (const s of (data.recent_submissions || [])) {
+    const st = s.status;
+    const cls = st === 'aprobado' ? 'bg-success' : st === 'rechazado' ? 'bg-danger' : 'bg-warning';
+    const icon = st === 'aprobado'
+      ? '<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>'
+      : st === 'rechazado'
+      ? '<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>'
+      : '<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+    items.push({
+      when: s.submitted_at,
+      html: `<div class="activity-item">
+        <div class="activity-icon ${cls}">${icon}</div>
+        <div>
+          <div class="activity-body">Envío #${s.id} de <strong>${escapeHtml(s.operador)}</strong> · ${st === 'pendiente_revision' ? 'pendiente' : st}</div>
+          <div class="activity-meta">${fmtDateShort(s.submitted_at)}</div>
+        </div>
+      </div>`,
+    });
+  }
+  items.sort((a, b) => new Date(b.when) - new Date(a.when));
+  cont.innerHTML = items.length ? items.slice(0, 15).map(i => i.html).join('') : '<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:0.85rem;">Sin actividad reciente.</div>';
+}
+
+function renderReviewersTable(reviewers) {
+  const cont = document.getElementById('tabla-revisores');
+  if (!reviewers.length) { cont.innerHTML = '<p style="color:#94a3b8;font-size:0.85rem;">Sin revisores registrados.</p>'; return; }
+  cont.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table class="data-table">
+        <thead><tr>
+          <th>Revisor</th>
+          <th style="text-align:right;">Histórico</th>
+          <th style="text-align:right;">Aprob. hist.</th>
+          <th style="text-align:right;">Rech. hist.</th>
+          <th style="text-align:right;">Pendientes</th>
+          <th>Última revisión</th>
+          <th style="text-align:center;">Auto</th>
+        </tr></thead>
+        <tbody>
+          ${reviewers.map(r => `
+            <tr${r.auto_assign ? ' style="background:#f0fdf4;"' : ''}>
+              <td>
+                <div style="font-weight:600;">${escapeHtml(r.username)}</div>
+                <div style="font-size:0.75rem;color:#94a3b8;">${escapeHtml(r.email)}</div>
+              </td>
+              <td style="text-align:right;font-weight:800;color:#0f172a;">${fmtN(r.revisiones_historico)}</td>
+              <td style="text-align:right;color:#059669;font-weight:700;">${fmtN(r.aprobadas_historico)}</td>
+              <td style="text-align:right;color:#dc2626;font-weight:700;">${fmtN(r.rechazadas_historico)}</td>
+              <td style="text-align:right;color:#d97706;font-weight:700;">${fmtN(r.pendientes_asignadas)}</td>
+              <td style="font-size:0.78rem;color:#64748b;">${fmtDateShort(r.ultima_revision)}</td>
+              <td style="text-align:center;">${r.auto_assign ? '<span style="background:#dcfce7;color:#15803d;font-size:0.65rem;font-weight:700;padding:0.1rem 0.45rem;border-radius:99px;border:1px solid #86efac;">AUTO</span>' : '<span style="color:#cbd5e1;">—</span>'}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function renderOperatorsTable(operators) {
+  const cont = document.getElementById('tabla-operadores');
+  if (!operators.length) { cont.innerHTML = '<p style="color:#94a3b8;font-size:0.85rem;">Sin operadores registrados.</p>'; return; }
+  cont.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table class="data-table">
+        <thead><tr>
+          <th>Operador</th>
+          <th style="text-align:right;">Total envíos</th>
+          <th style="text-align:right;">Aprobados</th>
+          <th style="text-align:right;">Pendientes</th>
+          <th style="text-align:right;">Rechazados</th>
+          <th style="text-align:right;">% Aprobación</th>
+          <th>Último envío</th>
+        </tr></thead>
+        <tbody>
+          ${operators.map(o => {
+            const tasa = o.envios_total ? (o.envios_aprobados / o.envios_total * 100).toFixed(0) : 0;
+            return `
+              <tr>
+                <td>
+                  <div style="font-weight:600;">${escapeHtml(o.username)}</div>
+                  <div style="font-size:0.75rem;color:#94a3b8;">${escapeHtml(o.email)}</div>
+                </td>
+                <td style="text-align:right;font-weight:800;">${fmtN(o.envios_total)}</td>
+                <td style="text-align:right;color:#059669;font-weight:700;">${fmtN(o.envios_aprobados)}</td>
+                <td style="text-align:right;color:#d97706;font-weight:700;">${fmtN(o.envios_pendientes)}</td>
+                <td style="text-align:right;color:#dc2626;font-weight:700;">${fmtN(o.envios_rechazados)}</td>
+                <td style="text-align:right;">
+                  <span style="font-weight:700;color:${tasa >= 75 ? '#059669' : tasa >= 50 ? '#d97706' : '#dc2626'};">${tasa}%</span>
+                </td>
+                <td style="font-size:0.78rem;color:#64748b;">${fmtDateShort(o.ultimo_envio)}</td>
+              </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function loadDashboard() {
+  chartFontDefaults();
+  try {
+    const [kpiR, revR, opR, tlR, actR] = await Promise.all([
+      fetch('/api/admin/dashboard/kpis',            { credentials: 'same-origin' }),
+      fetch('/api/admin/dashboard/reviewers',       { credentials: 'same-origin' }),
+      fetch('/api/admin/dashboard/operators',       { credentials: 'same-origin' }),
+      fetch(`/api/admin/dashboard/timeline?dias=${dashState.lastTimelineDays}`, { credentials: 'same-origin' }),
+      fetch('/api/admin/dashboard/recent-activity', { credentials: 'same-origin' }),
+    ]);
+    const kpi = await kpiR.json();
+    const rev = await revR.json();
+    const op  = await opR.json();
+    const tl  = await tlR.json();
+    const act = await actR.json();
+
+    renderKpis(kpi);
+    renderStatusChart(kpi);
+    renderReviewersChart(rev.reviewers || []);
+    renderOperatorsChart(op.operators || []);
+    renderTimelineChart(tl);
+    renderRecentActivity(act);
+    renderReviewersTable(rev.reviewers || []);
+    renderOperatorsTable(op.operators || []);
+  } catch (e) {
+    console.error('[dashboard] Error:', e);
+    toast('No se pudo cargar el dashboard.', 'error');
   }
 }
 
@@ -462,10 +810,17 @@ async function handleAssignReviews() {
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById(btn.dataset.target)?.classList.add('active');
-      // Refrescar la vista de asignación al entrar en ella
-      if (btn.dataset.target === 'panel-asignar')  loadAssignmentOverview();
-      if (btn.dataset.target === 'panel-respaldo') loadBackupSummary();
+      // Refrescar la vista al entrar en ella
+      if (btn.dataset.target === 'panel-dashboard') loadDashboard();
+      if (btn.dataset.target === 'panel-asignar')   loadAssignmentOverview();
+      if (btn.dataset.target === 'panel-respaldo')  loadBackupSummary();
     });
+  });
+
+  // Selector de días en el timeline
+  document.getElementById('timeline-days')?.addEventListener('change', (e) => {
+    dashState.lastTimelineDays = parseInt(e.target.value, 10) || 30;
+    loadDashboard();
   });
 
   // ── Respaldo de datos ─────────────────────────────────────────────────────
@@ -702,6 +1057,7 @@ async function handleAssignReviews() {
 
       if (res.ok) {
         closeModal('modal-crear');
+        toast(`${role[0].toUpperCase()}${role.slice(1)} creado exitosamente.`, 'success');
         await loadUsers(role);
         // Cambiar a la pestaña del rol creado
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -749,6 +1105,7 @@ async function handleAssignReviews() {
 
       if (res.ok) {
         closeModal('modal-eliminar');
+        toast('Usuario eliminado.', 'success');
         // Recargar las tres listas + overview por si se borró un revisor con asignaciones
         await Promise.all([
           loadUsers('admin'),
@@ -758,10 +1115,10 @@ async function handleAssignReviews() {
         ]);
       } else {
         const data = await res.json();
-        alert(data.error ?? 'Error al eliminar.');
+        toast(data.error ?? 'Error al eliminar.', 'error');
       }
     } catch {
-      alert('Error de conexión. Intenta nuevamente.');
+      toast('Error de conexión. Intenta nuevamente.', 'error');
     } finally {
       spinner.classList.add('d-none');
       btn.disabled = false;

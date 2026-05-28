@@ -368,19 +368,67 @@ router.post('/assign-reviews', [
 });
 
 // ── GET /api/admin/reviewers-report.xlsx ──────────────────────────────────────
-// Excel con resumen por revisor: nombre, email, total revisados, aprobadas, rechazadas, pendientes asignadas
+// Reporte completo por revisor. Se usa review_fields (histórico real de revisiones)
+// porque submissions.reviewer_id se resetea cuando el envío se corrige y vuelve a
+// revisión, lo que antes hacía que el conteo "Total revisados" subestimara el
+// trabajo real del revisor.
+//
+// Definiciones:
+//   - revisiones_realizadas_historico: # envíos distintos que el revisor ha
+//     revisado al menos una vez (incluye los que después fueron corregidos por
+//     el operador y vueltos a revisar).
+//   - vigente_aprobadas / vigente_rechazadas: revisiones del revisor que SIGUEN
+//     siendo el veredicto actual del envío (no fueron sobreescritas por otro
+//     revisor tras una corrección).
+//   - reaperturas: envíos que el revisor revisó y luego fueron corregidos y
+//     re-enviados (puede haberlas revisado él de nuevo o no).
 router.get('/reviewers-report.xlsx', async (_req, res) => {
   const rows = db.prepare(`
     SELECT
       u.id, u.username, u.email,
-      (SELECT COUNT(*) FROM submissions s WHERE s.reviewer_id = u.id) AS total_revisados,
-      (SELECT COUNT(*) FROM submissions s WHERE s.reviewer_id = u.id AND s.status = 'aprobado') AS aprobadas,
-      (SELECT COUNT(*) FROM submissions s WHERE s.reviewer_id = u.id AND s.status = 'rechazado') AS rechazadas,
-      (SELECT COUNT(*) FROM submissions s WHERE s.assigned_reviewer_id = u.id AND s.status = 'pendiente_revision') AS pendientes_asignadas
+
+      -- Histórico real: cuántos envíos distintos ha revisado, incluyendo los
+      -- que después fueron corregidos. Cuenta por submission_id en review_fields.
+      (SELECT COUNT(DISTINCT rf.submission_id) FROM review_fields rf
+        WHERE rf.reviewer_id = u.id) AS revisiones_historico,
+
+      -- Aprobaciones históricas: revisiones del revisor donde NO marcó ningún 'no_cumple'.
+      (SELECT COUNT(*) FROM (
+        SELECT rf.submission_id
+        FROM review_fields rf
+        WHERE rf.reviewer_id = u.id
+        GROUP BY rf.submission_id
+        HAVING SUM(CASE WHEN rf.status = 'no_cumple' THEN 1 ELSE 0 END) = 0
+      ) x) AS aprobadas_historico,
+
+      -- Rechazos históricos: revisiones donde marcó al menos 1 'no_cumple'.
+      (SELECT COUNT(*) FROM (
+        SELECT rf.submission_id
+        FROM review_fields rf
+        WHERE rf.reviewer_id = u.id
+        GROUP BY rf.submission_id
+        HAVING SUM(CASE WHEN rf.status = 'no_cumple' THEN 1 ELSE 0 END) > 0
+      ) x) AS rechazadas_historico,
+
+      -- Vigentes: revisiones que aún son el último veredicto del envío.
+      (SELECT COUNT(*) FROM submissions s
+        WHERE s.reviewer_id = u.id AND s.status = 'aprobado') AS vigente_aprobadas,
+      (SELECT COUNT(*) FROM submissions s
+        WHERE s.reviewer_id = u.id AND s.status = 'rechazado') AS vigente_rechazadas,
+
+      -- Pendientes asignados (esperando primera revisión por el revisor).
+      (SELECT COUNT(*) FROM submissions s
+        WHERE s.assigned_reviewer_id = u.id
+              AND s.status = 'pendiente_revision') AS pendientes_asignadas
     FROM users u
     WHERE u.role = 'revisor'
     ORDER BY u.username COLLATE NOCASE
   `).all();
+
+  // Agregar diferencia para detectar reaperturas que ya no cuentan como vigentes
+  for (const r of rows) {
+    r.reaperturas = Math.max(0, r.revisiones_historico - (r.vigente_aprobadas + r.vigente_rechazadas));
+  }
 
   const wb = new ExcelJS.Workbook();
   wb.creator = 'MINTIC';
@@ -391,33 +439,274 @@ router.get('/reviewers-report.xlsx', async (_req, res) => {
   });
 
   ws.columns = [
-    { header: 'Revisor',              key: 'username',             width: 24 },
-    { header: 'Correo',               key: 'email',                width: 32 },
-    { header: 'Total revisados',      key: 'total_revisados',      width: 18 },
-    { header: 'Aprobadas',            key: 'aprobadas',            width: 14 },
-    { header: 'Rechazadas',           key: 'rechazadas',           width: 14 },
-    { header: 'Pendientes asignadas', key: 'pendientes_asignadas', width: 22 },
+    { header: 'Revisor',                    key: 'username',             width: 26 },
+    { header: 'Correo',                     key: 'email',                width: 32 },
+    { header: 'Revisiones (histórico)',     key: 'revisiones_historico', width: 22 },
+    { header: 'Aprobadas (histórico)',      key: 'aprobadas_historico',  width: 22 },
+    { header: 'Rechazadas (histórico)',     key: 'rechazadas_historico', width: 22 },
+    { header: 'Aprobadas vigentes',         key: 'vigente_aprobadas',    width: 20 },
+    { header: 'Rechazadas vigentes',        key: 'vigente_rechazadas',   width: 20 },
+    { header: 'Reaperturas',                key: 'reaperturas',          width: 16 },
+    { header: 'Pendientes asignadas',       key: 'pendientes_asignadas', width: 22 },
   ];
 
   // Estilo del header
   const header = ws.getRow(1);
   header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
   header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF059669' } };
-  header.alignment = { vertical: 'middle', horizontal: 'center' };
-  header.height = 22;
+  header.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+  header.height = 30;
 
   for (const r of rows) ws.addRow(r);
 
   // Alineación numérica
-  for (let col = 3; col <= 6; col++) {
+  for (let col = 3; col <= 9; col++) {
     ws.getColumn(col).alignment = { horizontal: 'center' };
   }
+
+  // Segunda hoja: detalle envío por envío revisado por cada revisor
+  const wsDetalle = wb.addWorksheet('Detalle por envío', {
+    views: [{ state: 'frozen', ySplit: 1 }],
+  });
+  wsDetalle.columns = [
+    { header: 'Revisor',         key: 'revisor',      width: 24 },
+    { header: 'Envío ID',        key: 'submission_id',width: 12 },
+    { header: 'Operador',        key: 'operador',     width: 24 },
+    { header: 'Veredicto revisor', key: 'veredicto',  width: 18 },
+    { header: 'Estado actual',   key: 'estado_actual',width: 18 },
+    { header: 'Sigue vigente',   key: 'vigente',      width: 14 },
+    { header: 'Fecha revisión',  key: 'fecha',        width: 22 },
+    { header: 'Observaciones',   key: 'observaciones',width: 50 },
+  ];
+  const hd = wsDetalle.getRow(1);
+  hd.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  hd.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0284C7' } };
+  hd.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+  hd.height = 28;
+
+  const detalle = db.prepare(`
+    SELECT
+      rv.username AS revisor,
+      rf.submission_id,
+      op.username AS operador,
+      CASE WHEN SUM(CASE WHEN rf.status = 'no_cumple' THEN 1 ELSE 0 END) > 0
+           THEN 'rechazado' ELSE 'aprobado' END AS veredicto,
+      s.status AS estado_actual,
+      CASE WHEN s.reviewer_id = rv.id THEN 'Sí' ELSE 'No (reabierto)' END AS vigente,
+      MAX(rf.reviewed_at) AS fecha,
+      GROUP_CONCAT(
+        CASE WHEN rf.status = 'no_cumple' AND rf.comment IS NOT NULL
+             THEN rf.field_name || ': ' || rf.comment
+             ELSE NULL END,
+        ' | '
+      ) AS observaciones
+    FROM review_fields rf
+    JOIN users rv ON rv.id = rf.reviewer_id
+    JOIN submissions s ON s.id = rf.submission_id
+    JOIN users op ON op.id = s.operator_id
+    GROUP BY rv.id, rf.submission_id
+    ORDER BY rv.username COLLATE NOCASE, rf.submission_id
+  `).all();
+  for (const d of detalle) wsDetalle.addRow(d);
+
+  // Tercera hoja: leyenda de columnas
+  const wsLeyenda = wb.addWorksheet('Glosario');
+  wsLeyenda.columns = [
+    { header: 'Columna',  key: 'col',  width: 28 },
+    { header: 'Significado', key: 'def', width: 100 },
+  ];
+  const hl = wsLeyenda.getRow(1);
+  hl.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  hl.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF374151' } };
+  hl.alignment = { vertical: 'middle', horizontal: 'center' };
+  hl.height = 24;
+  const glosario = [
+    { col: 'Revisiones (histórico)', def: 'Total de envíos distintos que el revisor ha revisado alguna vez. Incluye envíos que después fueron corregidos por el operador y reabiertos para nueva revisión.' },
+    { col: 'Aprobadas (histórico)',  def: 'Cantidad de envíos donde el revisor NO marcó ningún criterio como "no cumple" (aprobó completo). Histórico.' },
+    { col: 'Rechazadas (histórico)', def: 'Cantidad de envíos donde el revisor marcó al menos un "no cumple". Histórico.' },
+    { col: 'Aprobadas vigentes',     def: 'Envíos cuya última revisión vigente fue del revisor y el estado actual es "aprobado".' },
+    { col: 'Rechazadas vigentes',    def: 'Envíos cuya última revisión vigente fue del revisor y el estado actual es "rechazado".' },
+    { col: 'Reaperturas',            def: 'Envíos revisados por el revisor que fueron corregidos por el operador y por eso ya no muestran al revisor como reviewer_id actual. Trabajo realizado pero "invisible" en columnas vigentes.' },
+    { col: 'Pendientes asignadas',   def: 'Envíos asignados al revisor que aún no han sido revisados (esperando su primera revisión).' },
+  ];
+  for (const g of glosario) wsLeyenda.addRow(g);
+  wsLeyenda.getColumn('def').alignment = { wrapText: true, vertical: 'top' };
 
   const today = new Date().toISOString().slice(0, 10);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="reporte-revisores-${today}.xlsx"`);
   await wb.xlsx.write(res);
   res.end();
+});
+
+// ── GET /api/admin/dashboard/kpis ─────────────────────────────────────────────
+// Indicadores clave globales del sistema (números grandes para el dashboard).
+router.get('/dashboard/kpis', (_req, res) => {
+  try {
+    const counts = {
+      envios_total:        db.prepare('SELECT COUNT(*) c FROM submissions').get().c,
+      envios_pendientes:   db.prepare("SELECT COUNT(*) c FROM submissions WHERE status='pendiente_revision'").get().c,
+      envios_aprobados:    db.prepare("SELECT COUNT(*) c FROM submissions WHERE status='aprobado'").get().c,
+      envios_rechazados:   db.prepare("SELECT COUNT(*) c FROM submissions WHERE status='rechazado'").get().c,
+      envios_sin_asignar:  db.prepare("SELECT COUNT(*) c FROM submissions WHERE status='pendiente_revision' AND assigned_reviewer_id IS NULL").get().c,
+      revisiones_total:    db.prepare('SELECT COUNT(DISTINCT submission_id) c FROM review_fields').get().c,
+      operadores_activos:  db.prepare("SELECT COUNT(DISTINCT operator_id) c FROM submissions").get().c,
+      revisores_activos:   db.prepare("SELECT COUNT(DISTINCT reviewer_id) c FROM review_fields").get().c,
+      revisores_en_pool:   db.prepare("SELECT COUNT(*) c FROM users WHERE role='revisor' AND auto_assign=1").get().c,
+      revisores_total:     db.prepare("SELECT COUNT(*) c FROM users WHERE role='revisor'").get().c,
+      operadores_total:    db.prepare("SELECT COUNT(*) c FROM users WHERE role='operador'").get().c,
+    };
+    const tasaAprobacion = counts.envios_total
+      ? (counts.envios_aprobados / counts.envios_total * 100)
+      : 0;
+    return res.json({
+      ...counts,
+      tasa_aprobacion: Number(tasaAprobacion.toFixed(1)),
+      generated_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error('[dashboard/kpis]', e);
+    return res.status(500).json({ error: 'No se pudieron calcular los KPIs.' });
+  }
+});
+
+// ── GET /api/admin/dashboard/reviewers ────────────────────────────────────────
+// Detalle por revisor (usando review_fields como fuente histórica real).
+router.get('/dashboard/reviewers', (_req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT
+        u.id, u.username, u.email, u.auto_assign,
+        u.created_at,
+        (SELECT COUNT(DISTINCT rf.submission_id) FROM review_fields rf
+          WHERE rf.reviewer_id = u.id) AS revisiones_historico,
+        (SELECT COUNT(*) FROM (
+          SELECT rf.submission_id FROM review_fields rf
+          WHERE rf.reviewer_id = u.id
+          GROUP BY rf.submission_id
+          HAVING SUM(CASE WHEN rf.status='no_cumple' THEN 1 ELSE 0 END) = 0
+        )) AS aprobadas_historico,
+        (SELECT COUNT(*) FROM (
+          SELECT rf.submission_id FROM review_fields rf
+          WHERE rf.reviewer_id = u.id
+          GROUP BY rf.submission_id
+          HAVING SUM(CASE WHEN rf.status='no_cumple' THEN 1 ELSE 0 END) > 0
+        )) AS rechazadas_historico,
+        (SELECT COUNT(*) FROM submissions s
+          WHERE s.reviewer_id = u.id AND s.status='aprobado') AS vigente_aprobadas,
+        (SELECT COUNT(*) FROM submissions s
+          WHERE s.reviewer_id = u.id AND s.status='rechazado') AS vigente_rechazadas,
+        (SELECT COUNT(*) FROM submissions s
+          WHERE s.assigned_reviewer_id = u.id AND s.status='pendiente_revision') AS pendientes_asignadas,
+        (SELECT MAX(rf.reviewed_at) FROM review_fields rf
+          WHERE rf.reviewer_id = u.id) AS ultima_revision
+      FROM users u
+      WHERE u.role='revisor'
+      ORDER BY revisiones_historico DESC, u.username COLLATE NOCASE
+    `).all();
+    return res.json({ reviewers: rows });
+  } catch (e) {
+    console.error('[dashboard/reviewers]', e);
+    return res.status(500).json({ error: 'No se pudo obtener el reporte de revisores.' });
+  }
+});
+
+// ── GET /api/admin/dashboard/operators ────────────────────────────────────────
+// Detalle por operador.
+router.get('/dashboard/operators', (_req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT
+        u.id, u.username, u.email,
+        u.created_at,
+        (SELECT COUNT(*) FROM submissions s WHERE s.operator_id = u.id) AS envios_total,
+        (SELECT COUNT(*) FROM submissions s WHERE s.operator_id = u.id AND s.status='pendiente_revision') AS envios_pendientes,
+        (SELECT COUNT(*) FROM submissions s WHERE s.operator_id = u.id AND s.status='aprobado') AS envios_aprobados,
+        (SELECT COUNT(*) FROM submissions s WHERE s.operator_id = u.id AND s.status='rechazado') AS envios_rechazados,
+        (SELECT MAX(s.submitted_at) FROM submissions s WHERE s.operator_id = u.id) AS ultimo_envio,
+        (SELECT MIN(s.submitted_at) FROM submissions s WHERE s.operator_id = u.id) AS primer_envio
+      FROM users u
+      WHERE u.role='operador'
+      ORDER BY envios_total DESC, u.username COLLATE NOCASE
+    `).all();
+    return res.json({ operators: rows });
+  } catch (e) {
+    console.error('[dashboard/operators]', e);
+    return res.status(500).json({ error: 'No se pudo obtener el reporte de operadores.' });
+  }
+});
+
+// ── GET /api/admin/dashboard/timeline ─────────────────────────────────────────
+// Serie temporal: envíos y revisiones por día (últimos 30 días por defecto).
+router.get('/dashboard/timeline', (req, res) => {
+  try {
+    const dias = Math.min(180, Math.max(7, parseInt(req.query.dias, 10) || 30));
+    // Envíos por día
+    const envios = db.prepare(`
+      SELECT DATE(submitted_at) AS dia, COUNT(*) AS cnt
+      FROM submissions
+      WHERE submitted_at IS NOT NULL
+        AND DATE(submitted_at) >= DATE('now', '-' || ? || ' day')
+      GROUP BY DATE(submitted_at)
+      ORDER BY dia
+    `).all(dias);
+    // Revisiones (envíos distintos revisados) por día
+    const revisiones = db.prepare(`
+      SELECT DATE(rf.reviewed_at) AS dia, COUNT(DISTINCT rf.submission_id) AS cnt
+      FROM review_fields rf
+      WHERE rf.reviewed_at IS NOT NULL
+        AND DATE(rf.reviewed_at) >= DATE('now', '-' || ? || ' day')
+      GROUP BY DATE(rf.reviewed_at)
+      ORDER BY dia
+    `).all(dias);
+    // Aprobaciones y rechazos por día (basados en reviewed_at de submissions)
+    const decisiones = db.prepare(`
+      SELECT DATE(reviewed_at) AS dia, status, COUNT(*) AS cnt
+      FROM submissions
+      WHERE reviewed_at IS NOT NULL
+        AND status IN ('aprobado','rechazado')
+        AND DATE(reviewed_at) >= DATE('now', '-' || ? || ' day')
+      GROUP BY DATE(reviewed_at), status
+      ORDER BY dia
+    `).all(dias);
+    return res.json({ envios, revisiones, decisiones, dias });
+  } catch (e) {
+    console.error('[dashboard/timeline]', e);
+    return res.status(500).json({ error: 'No se pudo construir la serie temporal.' });
+  }
+});
+
+// ── GET /api/admin/dashboard/recent-activity ──────────────────────────────────
+// Últimos eventos (envíos recientes, revisiones recientes).
+router.get('/dashboard/recent-activity', (req, res) => {
+  try {
+    const limit = Math.min(50, Math.max(5, parseInt(req.query.limit, 10) || 15));
+    const recent_submissions = db.prepare(`
+      SELECT s.id, s.status, s.submitted_at, s.reviewed_at,
+             op.username AS operador, rv.username AS revisor
+      FROM submissions s
+      JOIN users op ON op.id = s.operator_id
+      LEFT JOIN users rv ON rv.id = s.reviewer_id
+      WHERE s.submitted_at IS NOT NULL
+      ORDER BY s.submitted_at DESC
+      LIMIT ?
+    `).all(limit);
+    const recent_reviews = db.prepare(`
+      SELECT rf.submission_id, MAX(rf.reviewed_at) AS reviewed_at,
+             rv.username AS revisor,
+             CASE WHEN SUM(CASE WHEN rf.status='no_cumple' THEN 1 ELSE 0 END) > 0
+                  THEN 'rechazado' ELSE 'aprobado' END AS veredicto
+      FROM review_fields rf
+      JOIN users rv ON rv.id = rf.reviewer_id
+      GROUP BY rf.submission_id, rf.reviewer_id
+      ORDER BY reviewed_at DESC
+      LIMIT ?
+    `).all(limit);
+    return res.json({ recent_submissions, recent_reviews });
+  } catch (e) {
+    console.error('[dashboard/recent-activity]', e);
+    return res.status(500).json({ error: 'No se pudo obtener la actividad reciente.' });
+  }
 });
 
 // ── GET /api/admin/backup-summary ─────────────────────────────────────────────
