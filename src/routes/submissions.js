@@ -16,6 +16,47 @@ if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 // ── Documento del propietario de la vitrina ──────────────────────────────────
 const OWNER_DOC_TYPES = ['CC', 'NIT', 'CE', 'PP'];
 
+// ── Notas opcionales del operador ────────────────────────────────────────────
+// Campos válidos para los comentarios del operador. Se aceptan tanto los nombres
+// de archivos como las URLs y el documento del propietario.
+const NOTE_FIELDS = new Set([
+  // Archivos (los 7)
+  'cedula_pdf', 'informe_pdf', 'certificado_pdf',
+  'planilla_conecta_pdf', 'planilla_comunicacion_pdf',
+  'calificacion_modulos_pdf', 'evidencia_chatbot',
+  // Otros campos del envío
+  'url_vitrina', 'url_chatbot', 'owner_doc',
+]);
+const MAX_NOTE_LENGTH = 2000;
+
+// Extrae las notas del body (campos con prefijo "note_<field_name>") y devuelve
+// un array de { field_name, comment } para los que tienen contenido válido.
+function parseOperatorNotes(body) {
+  const notes = [];
+  for (const field of NOTE_FIELDS) {
+    const raw = body?.[`note_${field}`];
+    if (raw === undefined || raw === null) continue;
+    const trimmed = String(raw).trim();
+    if (!trimmed) continue;                                  // vacío → no se guarda
+    if (trimmed.length > MAX_NOTE_LENGTH) {
+      return { error: `La nota del campo "${field}" excede ${MAX_NOTE_LENGTH} caracteres.` };
+    }
+    notes.push({ field_name: field, comment: trimmed });
+  }
+  return { notes };
+}
+
+// Reemplaza por completo las notas del envío (borra las anteriores y guarda las nuevas).
+function saveOperatorNotes(submissionId, notes) {
+  const del = db.prepare('DELETE FROM operator_notes WHERE submission_id = ?');
+  const ins = db.prepare(`
+    INSERT INTO operator_notes (submission_id, field_name, comment, created_at, updated_at)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  `);
+  del.run(submissionId);
+  for (const n of notes) ins.run(submissionId, n.field_name, n.comment);
+}
+
 // Devuelve { type, number, errors } — type/number normalizados o errors no vacío
 function validateOwnerDoc(rawType, rawNumber, { required = true } = {}) {
   const errors = [];
@@ -237,6 +278,13 @@ router.post('/', authenticateToken, requireRole('operador'), (req, res) => {
          VALUES (?, ?, ?, ?, ?, ?)`
       );
 
+      // Validar y extraer las notas opcionales del operador antes de la transacción
+      const notesRes = parseOperatorNotes(req.body);
+      if (notesRes.error) {
+        deleteFiles(uploaded);
+        return res.status(400).json({ error: notesRes.error });
+      }
+
       try {
         const save = db.transaction(() => {
           const { lastInsertRowid: subId } = insertSub.run(
@@ -246,6 +294,8 @@ router.post('/', authenticateToken, requireRole('operador'), (req, res) => {
             const f = req.files[field][0];
             insertFile.run(subId, field, f.filename, f.originalname, f.mimetype, f.size);
           }
+          // Guardar notas opcionales del operador
+          if (notesRes.notes.length) saveOperatorNotes(subId, notesRes.notes);
           // Asignación automática inmediata si hay revisores en el pool.
           // Si el pool está vacío, el envío queda sin asignar para reparto manual posterior.
           const assignedTo = autoAssignFromPool(subId);
@@ -373,8 +423,11 @@ router.get('/:id', authenticateToken, (req, res) => {
   const reviews = db.prepare(
     'SELECT field_name, status, comment, reviewed_at FROM review_fields WHERE submission_id = ? ORDER BY id'
   ).all(id);
+  const operator_notes = db.prepare(
+    'SELECT field_name, comment, created_at, updated_at FROM operator_notes WHERE submission_id = ?'
+  ).all(id);
 
-  return res.json({ submission: sub, files, reviews });
+  return res.json({ submission: sub, files, reviews, operator_notes });
 });
 
 // ── PUT /api/submissions/:id ── Corregir (operador, solo si rechazado) ────────
@@ -448,6 +501,13 @@ router.put('/:id', authenticateToken, requireRole('operador'), (req, res) => {
         }
       }
 
+      // Validar notas opcionales del operador antes de la transacción
+      const notesRes = parseOperatorNotes(req.body);
+      if (notesRes.error) {
+        deleteFiles(uploaded);
+        return res.status(400).json({ error: notesRes.error });
+      }
+
       try {
         const update = db.transaction(() => {
           const filesToDelete = [];
@@ -479,6 +539,9 @@ router.put('/:id', authenticateToken, requireRole('operador'), (req, res) => {
 
           // Limpiar revisiones anteriores para revisión fresca
           db.prepare('DELETE FROM review_fields WHERE submission_id = ?').run(id);
+
+          // Reemplazar notas del operador (la corrección sobreescribe las anteriores)
+          saveOperatorNotes(id, notesRes.notes);
 
           return filesToDelete;
         });

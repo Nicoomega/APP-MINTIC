@@ -94,6 +94,28 @@ function showLista() {
   if (window.gsap) gsap.from('#section-lista', { opacity: 0, y: 16, duration: 0.3, ease: 'power2.out' });
 }
 
+// Helper: rellena los textareas de notas del operador con los datos existentes.
+// Si mode === 'ver', los pone en solo lectura y oculta los que están vacíos.
+function applyOperatorNotes(data, mode) {
+  const notesArr = data?.operator_notes ?? [];
+  const map = Object.fromEntries(notesArr.map(n => [n.field_name, n.comment]));
+  const NOTE_FIELDS = ['cedula_pdf','informe_pdf','certificado_pdf','planilla_conecta_pdf',
+                       'planilla_comunicacion_pdf','calificacion_modulos_pdf','evidencia_chatbot',
+                       'url_vitrina','url_chatbot','owner_doc'];
+  for (const f of NOTE_FIELDS) {
+    const ta   = document.getElementById(`note_${f}`);
+    const wrap = document.querySelector(`.op-note-wrap[data-for="${f}"]`);
+    if (!ta || !wrap) continue;
+    const val = map[f] ?? '';
+    ta.value = val;
+    if (mode === 'ver') {
+      ta.setAttribute('readonly', '');
+      wrap.classList.add('op-note-readonly');
+      if (!val) wrap.classList.add('op-note-empty');
+    }
+  }
+}
+
 function showForm(mode = 'nuevo', data = null, reviews = []) {
   document.getElementById('section-lista').classList.add('d-none');
   document.getElementById('section-form').classList.remove('d-none');
@@ -142,6 +164,25 @@ function showForm(mode = 'nuevo', data = null, reviews = []) {
   document.querySelectorAll('.field-locked').forEach(el => el.classList.remove('field-locked'));
   // Restablecer botón submit
   document.getElementById('btn-submit').style.display = '';
+
+  // ── Reset de notas opcionales del operador ────────────────────────────────
+  // Limpia el contenido, elimina readonly/clase de solo-lectura y muestra el wrap.
+  const NOTE_FIELDS = ['cedula_pdf','informe_pdf','certificado_pdf','planilla_conecta_pdf',
+                       'planilla_comunicacion_pdf','calificacion_modulos_pdf','evidencia_chatbot',
+                       'url_vitrina','url_chatbot','owner_doc'];
+  for (const f of NOTE_FIELDS) {
+    const ta = document.getElementById(`note_${f}`);
+    if (ta) {
+      ta.value = '';
+      ta.removeAttribute('readonly');
+      ta.placeholder = 'Agrega aquí cualquier aclaración para el revisor (opcional)';
+    }
+    const wrap = document.querySelector(`.op-note-wrap[data-for="${f}"]`);
+    if (wrap) {
+      wrap.classList.remove('op-note-readonly', 'op-note-empty');
+      wrap.style.display = '';
+    }
+  }
 
   if (mode === 'corregir' && data) {
     titulo.textContent    = 'Corregir envío rechazado';
@@ -280,6 +321,9 @@ function showForm(mode = 'nuevo', data = null, reviews = []) {
       notesDiv.classList.add('d-none');
     }
 
+    // Cargar notas del operador previas (editables al corregir)
+    applyOperatorNotes(data, 'corregir');
+
   } else if (mode === 'ver' && data) {
     titulo.textContent    = 'Detalle del envío';
     subtitulo.textContent = 'Vista de solo lectura. No puedes editar este envío.';
@@ -342,6 +386,9 @@ function showForm(mode = 'nuevo', data = null, reviews = []) {
 
     // Ocultar botón de envío
     document.getElementById('btn-submit').style.display = 'none';
+
+    // Mostrar notas del operador en modo solo lectura
+    applyOperatorNotes(data, 'ver');
 
   } else {
     titulo.textContent    = 'Nuevo envío';

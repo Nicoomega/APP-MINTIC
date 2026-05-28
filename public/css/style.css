@@ -699,6 +699,85 @@ body {
   line-height: 1;
 }
 
+/* ── Notas opcionales del operador ─────────────────────────────────────────── */
+.op-note-wrap {
+  margin-top: 0.55rem;
+  background: linear-gradient(180deg, #fefce8 0%, #fef9c3 100%);
+  border: 1px dashed #fcd34d;
+  border-radius: 10px;
+  padding: 0.6rem 0.85rem 0.7rem;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.op-note-wrap:focus-within {
+  background: linear-gradient(180deg, #fefce8 0%, #fef3c7 100%);
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
+}
+.op-note-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #92400e;
+  margin-bottom: 0.3rem;
+}
+.op-note-label::before {
+  content: '';
+  width: 14px;
+  height: 14px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23b45309' stroke-width='2.2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  flex-shrink: 0;
+}
+.op-note-optional {
+  font-weight: 400;
+  color: #b45309;
+  font-style: italic;
+}
+textarea.form-control.op-note {
+  resize: vertical;
+  min-height: 56px;
+  font-size: 0.82rem;
+  background: #fff;
+  border-color: #fde68a;
+}
+textarea.form-control.op-note:focus { border-color: #f59e0b; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18); }
+.op-note-wrap.op-note-readonly {
+  background: #f8fafc;
+  border-style: solid;
+  border-color: #cbd5e1;
+}
+.op-note-wrap.op-note-readonly .op-note-label { color: #475569; }
+.op-note-wrap.op-note-readonly .op-note-label::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23475569' stroke-width='2.2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'/%3E%3C/svg%3E");
+}
+.op-note-wrap.op-note-empty { display: none; }
+
+/* Caja de notas del operador vista por el revisor */
+.reviewer-op-note {
+  margin-top: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  background: #fefce8;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: #78350f;
+  line-height: 1.45;
+}
+.reviewer-op-note .reviewer-op-note-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #92400e;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.2rem;
+}
+
 /* ── Responsive ──────────────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
   .page-content { padding: 1rem 0.875rem; }

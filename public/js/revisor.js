@@ -249,6 +249,19 @@ async function showRevision(id) {
     const sub     = subData.submission;
     const files   = subData.files    ?? [];
     const reviews = revData.reviews  ?? [];
+    const opNotes = subData.operator_notes ?? [];
+    const opNoteMap = Object.fromEntries(opNotes.map(n => [n.field_name, n.comment]));
+    const opNoteBox = (field) => {
+      const c = opNoteMap[field];
+      if (!c) return '';
+      return `<div class="reviewer-op-note">
+        <div class="reviewer-op-note-label">
+          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="#b45309" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          Nota del operador
+        </div>
+        <div>${escapeHtml(c)}</div>
+      </div>`;
+    };
 
     document.getElementById('revision-operador').textContent = sub.operator_name ?? '?';
 
@@ -284,6 +297,7 @@ async function showRevision(id) {
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
             </a>
           </div>
+          ${opNoteBox(f.field_name)}
           ${controls}
         </div>`;
       }).join('');
@@ -296,6 +310,13 @@ async function showRevision(id) {
     vitrinaEl.href        = sub.url_vitrina ?? '#';
     chatbotEl.textContent = sub.url_chatbot ?? '—';
     chatbotEl.href        = sub.url_chatbot ?? '#';
+
+    // Notas del operador para URLs y documento del propietario (si existen)
+    const urlsExtras = document.getElementById('urls-extras');
+    if (urlsExtras) {
+      const extras = ['url_vitrina', 'url_chatbot', 'owner_doc'].map(f => opNoteBox(f)).filter(Boolean).join('');
+      urlsExtras.innerHTML = extras;
+    }
 
     // Formulario de revisión
     document.getElementById('review-fields-container').innerHTML = buildReviewForm(reviews);

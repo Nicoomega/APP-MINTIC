@@ -141,6 +141,26 @@ function runMigrations() {
     db.pragma('user_version = 7');
     console.log('Migración v7 aplicada: columna auto_assign añadida a users (pool de asignación automática).');
   }
+
+  if (getVersion() < 8) {
+    // Notas u observaciones opcionales del operador por cada campo del envío.
+    // field_name puede ser cualquier nombre de archivo (cedula_pdf, informe_pdf, etc.)
+    // o un campo de texto (url_vitrina, url_chatbot, owner_doc).
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS operator_notes (
+        id            INTEGER  PRIMARY KEY AUTOINCREMENT,
+        submission_id INTEGER  NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+        field_name    TEXT     NOT NULL,
+        comment       TEXT     NOT NULL,
+        created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(submission_id, field_name)
+      );
+      CREATE INDEX IF NOT EXISTS idx_operator_notes_submission ON operator_notes(submission_id);
+    `);
+    db.pragma('user_version = 8');
+    console.log('Migración v8 aplicada: tabla operator_notes creada (comentarios opcionales del operador).');
+  }
 }
 
 function initDatabase() {

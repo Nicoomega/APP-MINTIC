@@ -102,6 +102,10 @@
               <p class="form-hint">El sistema bloqueará el envío si este documento ya está registrado.</p>
             </div>
           </div>
+          <div class="op-note-wrap" data-for="owner_doc">
+            <label for="note_owner_doc" class="op-note-label">Notas u observaciones sobre el documento del propietario <span class="op-note-optional">(opcional)</span></label>
+            <textarea class="form-control op-note" id="note_owner_doc" name="note_owner_doc" rows="2" maxlength="2000" placeholder="Agrega aquí cualquier aclaración para el revisor sobre este campo (opcional)"></textarea>
+          </div>
         </div>
       </div>
 
@@ -118,6 +122,10 @@
             <div id="current-cedula_pdf" class="d-none"></div>
             <input type="file" class="form-control" name="cedula_pdf" id="cedula_pdf" accept=".pdf" required />
             <p class="form-hint">PDF · máximo 2 páginas · máx. 5 MB</p>
+            <div class="op-note-wrap" data-for="cedula_pdf">
+              <label for="note_cedula_pdf" class="op-note-label">Notas u observaciones <span class="op-note-optional">(opcional)</span></label>
+              <textarea class="form-control op-note" id="note_cedula_pdf" name="note_cedula_pdf" rows="2" maxlength="2000" placeholder="Agrega aquí cualquier aclaración para el revisor (opcional)"></textarea>
+            </div>
           </div>
 
           <div class="form-group" id="wrap-informe_pdf">
@@ -125,6 +133,10 @@
             <div id="current-informe_pdf" class="d-none"></div>
             <input type="file" class="form-control" name="informe_pdf" id="informe_pdf" accept=".pdf" required />
             <p class="form-hint">PDF · máx. 10 MB</p>
+            <div class="op-note-wrap" data-for="informe_pdf">
+              <label for="note_informe_pdf" class="op-note-label">Notas u observaciones <span class="op-note-optional">(opcional)</span></label>
+              <textarea class="form-control op-note" id="note_informe_pdf" name="note_informe_pdf" rows="2" maxlength="2000" placeholder="Agrega aquí cualquier aclaración para el revisor (opcional)"></textarea>
+            </div>
           </div>
 
           <div class="form-group" id="wrap-certificado_pdf">
@@ -132,6 +144,10 @@
             <div id="current-certificado_pdf" class="d-none"></div>
             <input type="file" class="form-control" name="certificado_pdf" id="certificado_pdf" accept=".pdf" required />
             <p class="form-hint">PDF · máximo 2 páginas · máx. 5 MB</p>
+            <div class="op-note-wrap" data-for="certificado_pdf">
+              <label for="note_certificado_pdf" class="op-note-label">Notas u observaciones <span class="op-note-optional">(opcional)</span></label>
+              <textarea class="form-control op-note" id="note_certificado_pdf" name="note_certificado_pdf" rows="2" maxlength="2000" placeholder="Agrega aquí cualquier aclaración para el revisor (opcional)"></textarea>
+            </div>
           </div>
 
           <div class="form-group" id="wrap-planilla_conecta_pdf">
@@ -139,6 +155,10 @@
             <div id="current-planilla_conecta_pdf" class="d-none"></div>
             <input type="file" class="form-control" name="planilla_conecta_pdf" id="planilla_conecta_pdf" accept=".pdf" required />
             <p class="form-hint">PDF · máximo 3 páginas · máx. 5 MB</p>
+            <div class="op-note-wrap" data-for="planilla_conecta_pdf">
+              <label for="note_planilla_conecta_pdf" class="op-note-label">Notas u observaciones <span class="op-note-optional">(opcional)</span></label>
+              <textarea class="form-control op-note" id="note_planilla_conecta_pdf" name="note_planilla_conecta_pdf" rows="2" maxlength="2000" placeholder="Agrega aquí cualquier aclaración para el revisor (opcional)"></textarea>
+            </div>
           </div>
 
           <div class="form-group" id="wrap-planilla_comunicacion_pdf">
@@ -146,6 +166,10 @@
             <div id="current-planilla_comunicacion_pdf" class="d-none"></div>
             <input type="file" class="form-control" name="planilla_comunicacion_pdf" id="planilla_comunicacion_pdf" accept=".pdf" required />
             <p class="form-hint">PDF · máximo 3 páginas · máx. 5 MB</p>
+            <div class="op-note-wrap" data-for="planilla_comunicacion_pdf">
+              <label for="note_planilla_comunicacion_pdf" class="op-note-label">Notas u observaciones <span class="op-note-optional">(opcional)</span></label>
+              <textarea class="form-control op-note" id="note_planilla_comunicacion_pdf" name="note_planilla_comunicacion_pdf" rows="2" maxlength="2000" placeholder="Agrega aquí cualquier aclaración para el revisor (opcional)"></textarea>
+            </div>
           </div>
 
           <div class="form-group" style="margin-bottom:0;" id="wrap-calificacion_modulos_pdf">
@@ -153,6 +177,10 @@
             <div id="current-calificacion_modulos_pdf" class="d-none"></div>
             <input type="file" class="form-control" name="calificacion_modulos_pdf" id="calificacion_modulos_pdf" accept=".pdf" required />
             <p class="form-hint">PDF · máximo 3 páginas · máx. 5 MB</p>
+            <div class="op-note-wrap" data-for="calificacion_modulos_pdf">
+              <label for="note_calificacion_modulos_pdf" class="op-note-label">Notas u observaciones <span class="op-note-optional">(opcional)</span></label>
+              <textarea class="form-control op-note" id="note_calificacion_modulos_pdf" name="note_calificacion_modulos_pdf" rows="2" maxlength="2000" placeholder="Agrega aquí cualquier aclaración para el revisor (opcional)"></textarea>
+            </div>
           </div>
 
         </div>
@@ -168,10 +196,18 @@
           <div class="form-group" id="wrap-url_vitrina">
             <label for="url_vitrina" class="form-label">URL de la vitrina <span class="req">*</span></label>
             <input type="url" class="form-control" id="url_vitrina" name="url_vitrina" placeholder="https://…" required />
+            <div class="op-note-wrap" data-for="url_vitrina">
+              <label for="note_url_vitrina" class="op-note-label">Notas u observaciones <span class="op-note-optional">(opcional)</span></label>
+              <textarea class="form-control op-note" id="note_url_vitrina" name="note_url_vitrina" rows="2" maxlength="2000" placeholder="Agrega aquí cualquier aclaración para el revisor (opcional)"></textarea>
+            </div>
           </div>
           <div class="form-group" style="margin-bottom:0;" id="wrap-url_chatbot">
             <label for="url_chatbot" class="form-label">URL del chatbot <span class="req">*</span></label>
             <input type="url" class="form-control" id="url_chatbot" name="url_chatbot" placeholder="https://…" required />
+            <div class="op-note-wrap" data-for="url_chatbot">
+              <label for="note_url_chatbot" class="op-note-label">Notas u observaciones <span class="op-note-optional">(opcional)</span></label>
+              <textarea class="form-control op-note" id="note_url_chatbot" name="note_url_chatbot" rows="2" maxlength="2000" placeholder="Agrega aquí cualquier aclaración para el revisor (opcional)"></textarea>
+            </div>
           </div>
         </div>
       </div>
@@ -188,6 +224,10 @@
             <div id="current-evidencia_chatbot" class="d-none"></div>
             <input type="file" class="form-control" name="evidencia_chatbot" id="evidencia_chatbot" accept=".pdf,.jpg,.jpeg,.png" required />
             <p class="form-hint">PDF, JPG o PNG · máx. 10 MB</p>
+            <div class="op-note-wrap" data-for="evidencia_chatbot">
+              <label for="note_evidencia_chatbot" class="op-note-label">Notas u observaciones <span class="op-note-optional">(opcional)</span></label>
+              <textarea class="form-control op-note" id="note_evidencia_chatbot" name="note_evidencia_chatbot" rows="2" maxlength="2000" placeholder="Agrega aquí cualquier aclaración para el revisor (opcional)"></textarea>
+            </div>
           </div>
         </div>
       </div>
