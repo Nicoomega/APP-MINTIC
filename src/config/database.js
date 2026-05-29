@@ -161,6 +161,57 @@ function runMigrations() {
     db.pragma('user_version = 8');
     console.log('Migración v8 aplicada: tabla operator_notes creada (comentarios opcionales del operador).');
   }
+
+  if (getVersion() < 9) {
+    // Bitácora DURABLE de revisiones. Cada vez que un revisor completa una revisión
+    // se registra aquí un evento que NO se borra cuando el operador reenvía una
+    // corrección, ni cuando se renombra/cambia de rol/elimina al revisor.
+    //
+    // Antes "total revisadas / histórico" se calculaba con submissions.reviewer_id o
+    // con review_fields, pero ambos se pierden al reenviar (reviewer_id pasa a NULL y
+    // review_fields se borra/sobrescribe), haciendo que el revisor perdiera el crédito
+    // de revisiones que sí realizó. Esta tabla es la única fuente de verdad durable
+    // para los conteos de revisiones realizadas.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS review_events (
+        id            INTEGER  PRIMARY KEY AUTOINCREMENT,
+        submission_id INTEGER  NOT NULL,
+        reviewer_id   INTEGER  NOT NULL,
+        result        TEXT     NOT NULL CHECK(result IN ('aprobado', 'rechazado')),
+        reviewed_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_review_events_reviewer ON review_events(reviewer_id);
+      CREATE INDEX IF NOT EXISTS idx_review_events_submission ON review_events(submission_id);
+    `);
+
+    // Backfill para no perder el crédito existente al actualizar. Preferimos la
+    // evidencia más rica (review_fields, que conserva el veredicto por revisor de la
+    // última ronda de cada envío); si no hay, caemos al estado vigente de submissions.
+    try {
+      const fromFields = db.prepare(`
+        SELECT rf.submission_id AS sid, rf.reviewer_id AS rid,
+               CASE WHEN SUM(CASE WHEN rf.status='no_cumple' THEN 1 ELSE 0 END) > 0
+                    THEN 'rechazado' ELSE 'aprobado' END AS result,
+               MAX(rf.reviewed_at) AS rat
+        FROM review_fields rf
+        GROUP BY rf.submission_id, rf.reviewer_id
+      `).all();
+      const insEv = db.prepare(`INSERT INTO review_events (submission_id, reviewer_id, result, reviewed_at) VALUES (?,?,?,COALESCE(?,CURRENT_TIMESTAMP))`);
+      const seen = new Set();
+      const tx = db.transaction(() => {
+        for (const r of fromFields) { insEv.run(r.sid, r.rid, r.result, r.rat); seen.add(r.sid + ':' + r.rid); }
+        // Envíos revisados cuyo veredicto sólo vive en submissions (review_fields ya borrados)
+        const fromSubs = db.prepare(`SELECT id AS sid, reviewer_id AS rid, status AS result, reviewed_at AS rat FROM submissions WHERE reviewer_id IS NOT NULL AND status IN ('aprobado','rechazado')`).all();
+        for (const r of fromSubs) { if (!seen.has(r.sid + ':' + r.rid)) insEv.run(r.sid, r.rid, r.result, r.rat); }
+      });
+      tx();
+    } catch (e) {
+      console.error('[migración v9] backfill de review_events falló:', e.message);
+    }
+
+    db.pragma('user_version = 9');
+    console.log('Migración v9 aplicada: bitácora durable review_events creada y poblada.');
+  }
 }
 
 function initDatabase() {

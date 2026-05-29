@@ -142,7 +142,11 @@ router.get('/me', (req, res) => {
       const revoked = db.prepare('SELECT 1 FROM revoked_tokens WHERE jti = ?').get(payload.jti);
       if (revoked) return res.status(401).json({ error: 'Sesión cerrada. Inicia sesión nuevamente.' });
     }
-    return res.json({ user: { id: payload.id, username: payload.username, email: payload.email, role: payload.role } });
+    // Leer fresco de la BD: si el admin editó el username/rol/email del usuario,
+    // se refleja de inmediato (el JWT guarda los valores del momento del login).
+    const fresh = db.prepare('SELECT id, username, email, role FROM users WHERE id = ?').get(payload.id);
+    if (!fresh) return res.status(401).json({ error: 'La cuenta ya no existe. Inicia sesión nuevamente.' });
+    return res.json({ user: fresh });
   } catch {
     return res.status(401).json({ error: 'Token inválido.' });
   }

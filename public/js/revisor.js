@@ -73,17 +73,16 @@ async function loadList() {
 
   container.innerHTML = `<div style="text-align:center;padding:2rem;"><div class="spinner" style="border-top-color:#059669;margin:0 auto;"></div></div>`;
   try {
-    // Para las stats del revisor siempre usamos scope=mine, sin importar el filtro UI
-    const [resVista, resMine] = await Promise.all([
+    // Las stats vienen del backend (misma fuente de verdad que el dashboard y el
+    // Excel): pendientes asignadas en vivo + revisadas/aprobadas/rechazadas desde
+    // la bitácora durable review_events. Así los tres conteos SIEMPRE coinciden.
+    const [resVista, resStats] = await Promise.all([
       fetch(scope === 'all' ? '/api/submissions?scope=all' : '/api/submissions', { credentials: 'same-origin' }),
-      scope === 'all'
-        ? fetch('/api/submissions', { credentials: 'same-origin' })
-        : null,
+      fetch('/api/reviews/mine-stats', { credentials: 'same-origin' }),
     ]);
-    const data    = await resVista.json();
-    const dataMine = resMine ? await resMine.json() : data;
+    const data = await resVista.json();
 
-    updateRevisorStats(dataMine.submissions ?? []);
+    if (resStats.ok) renderRevisorStats(await resStats.json());
 
     let list = data.submissions ?? [];
     if (filtro) list = list.filter(s => s.status === filtro);
@@ -93,26 +92,13 @@ async function loadList() {
   }
 }
 
-// ── Stats del revisor (cards arriba) ──────────────────────────────────────────
-function updateRevisorStats(allMine) {
-  const meName = currentUser?.username;
-  // En scope=mine el backend ya filtra a "asignados a mí o revisados por mí"
-  let pending = 0, reviewed = 0, approved = 0, rejected = 0;
-  for (const s of allMine) {
-    if (s.status === 'pendiente_revision') {
-      // En scope=mine, todo pendiente que esté en la lista es porque me lo asignaron
-      pending++;
-    } else if (s.reviewer_name === meName) {
-      reviewed++;
-      if (s.status === 'aprobado')  approved++;
-      if (s.status === 'rechazado') rejected++;
-    }
-  }
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  set('stat-pending-mine',  pending);
-  set('stat-reviewed-mine', reviewed);
-  set('stat-approved-mine', approved);
-  set('stat-rejected-mine', rejected);
+// ── Stats del revisor (cards arriba) — datos del backend ──────────────────────
+function renderRevisorStats(s) {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? 0; };
+  set('stat-pending-mine',  s.pending_assigned);
+  set('stat-reviewed-mine', s.reviewed_total);
+  set('stat-approved-mine', s.approved);
+  set('stat-rejected-mine', s.rejected);
 }
 
 function renderList(list) {

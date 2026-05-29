@@ -31,6 +31,22 @@ router.get('/fields', (_req, res) => {
   res.json({ fields: REVIEW_FIELDS });
 });
 
+// ── GET /api/reviews/mine-stats ── Stats del revisor (misma fuente que admin) ─
+// Pendientes asignadas: en vivo desde submissions (assigned_reviewer_id + pendiente).
+// Revisadas/aprobadas/rechazadas: bitácora durable review_events (trabajo realizado),
+// inmune a reenvíos, renombres y cambios de rol. Definiciones IDÉNTICAS a las del
+// dashboard y el Excel, por lo que los tres conteos siempre coinciden.
+router.get('/mine-stats', authenticateToken, requireRole('revisor'), (req, res) => {
+  const uid = req.user.id;
+  const pending_assigned = db.prepare(
+    `SELECT COUNT(*) AS c FROM submissions WHERE assigned_reviewer_id = ? AND status = 'pendiente_revision'`
+  ).get(uid).c;
+  const reviewed_total = db.prepare(`SELECT COUNT(*) AS c FROM review_events WHERE reviewer_id = ?`).get(uid).c;
+  const approved = db.prepare(`SELECT COUNT(*) AS c FROM review_events WHERE reviewer_id = ? AND result = 'aprobado'`).get(uid).c;
+  const rejected = db.prepare(`SELECT COUNT(*) AS c FROM review_events WHERE reviewer_id = ? AND result = 'rechazado'`).get(uid).c;
+  return res.json({ pending_assigned, reviewed_total, approved, rejected });
+});
+
 // ── POST /api/reviews/:id ── Enviar revisión (revisor) ────────────────────────
 router.post('/:id', authenticateToken, requireRole('revisor'), (req, res) => {
   const subId = parseInt(req.params.id, 10);
@@ -83,12 +99,20 @@ router.post('/:id', authenticateToken, requireRole('revisor'), (req, res) => {
     for (const f of fields) {
       upsert.run(subId, req.user.id, f.name, f.status, f.comment?.trim() || null);
     }
+    // Quien revisa queda como revisor Y como asignado (evita estados "asignado a A,
+    // revisado por B" que descuadran los conteos entre vistas).
     db.prepare(`
       UPDATE submissions
       SET    status = ?, reviewed_at = CURRENT_TIMESTAMP,
-             reviewer_id = ?, updated_at = CURRENT_TIMESTAMP
+             reviewer_id = ?, assigned_reviewer_id = ?, updated_at = CURRENT_TIMESTAMP
       WHERE  id = ?
-    `).run(newStatus, req.user.id, subId);
+    `).run(newStatus, req.user.id, req.user.id, subId);
+
+    // Registro durable: sobrevive reenvíos, renombres y cambios de rol/eliminación.
+    db.prepare(`
+      INSERT INTO review_events (submission_id, reviewer_id, result, reviewed_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(subId, req.user.id, newStatus);
   });
 
   save();

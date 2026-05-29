@@ -133,7 +133,7 @@ function autoAssignFromPool(submissionId) {
   const pool = db.prepare(`
     SELECT
       u.id,
-      (SELECT COUNT(*) FROM submissions s WHERE s.reviewer_id = u.id) AS reviewed_total,
+      (SELECT COUNT(*) FROM review_events e WHERE e.reviewer_id = u.id) AS reviewed_total,
       (SELECT COUNT(*) FROM submissions s
         WHERE s.assigned_reviewer_id = u.id AND s.status = 'pendiente_revision') AS assigned_pending
     FROM users u

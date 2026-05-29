@@ -140,7 +140,22 @@ router.patch('/users/:id', [
 
   if (!sets.length) return res.status(400).json({ error: 'No hay cambios para guardar.' });
   vals.push(id);
-  db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    // Si deja de ser revisor, liberar sus envíos pendientes asignados (vuelven al pool).
+    // Si no, quedarían huérfanos: el dashboard sólo lista revisores y tampoco saldrían
+    // como "sin asignar".
+    if (role !== undefined && role !== 'revisor' && user.role === 'revisor') {
+      db.prepare(`
+        UPDATE submissions SET assigned_reviewer_id = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE assigned_reviewer_id = ? AND status = 'pendiente_revision'
+      `).run(id);
+      // Y sacarlo del pool de asignación automática.
+      try { db.prepare(`UPDATE users SET auto_assign = 0 WHERE id = ?`).run(id); } catch { /* sin columna */ }
+    }
+  });
+  tx();
 
   const updated = db.prepare('SELECT id, username, email, role FROM users WHERE id = ?').get(id);
   return res.json({ message: 'Usuario actualizado.', user: updated });
@@ -171,7 +186,18 @@ router.delete('/users/:id', [
     }
   }
 
-  db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  // Limpiar referencias antes de borrar para no chocar con las foreign keys
+  // (submissions.reviewer_id y review_fields.reviewer_id NO tienen ON DELETE; sin esto,
+  // borrar un revisor con historial fallaría con error de FK → 500).
+  // El crédito de revisiones se conserva en review_events (sin FK, no se borra).
+  const uid = parseInt(id, 10);
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM review_fields WHERE reviewer_id = ?').run(uid);
+    db.prepare('UPDATE submissions SET reviewer_id = NULL WHERE reviewer_id = ?').run(uid);
+    // assigned_reviewer_id se pone NULL automáticamente (ON DELETE SET NULL).
+    db.prepare('DELETE FROM users WHERE id = ?').run(uid);
+  });
+  tx();
   return res.json({ message: 'Usuario eliminado.' });
 });
 
@@ -185,8 +211,8 @@ router.get('/assignment-overview', (_req, res) => {
       u.auto_assign,
       (SELECT COUNT(*) FROM submissions s
         WHERE s.assigned_reviewer_id = u.id AND s.status = 'pendiente_revision') AS assigned_pending,
-      (SELECT COUNT(*) FROM submissions s
-        WHERE s.reviewer_id = u.id) AS reviewed_total
+      (SELECT COUNT(*) FROM review_events e
+        WHERE e.reviewer_id = u.id) AS reviewed_total
     FROM users u
     WHERE u.role = 'revisor'
     ORDER BY u.username COLLATE NOCASE
@@ -317,7 +343,7 @@ router.post('/assign-reviews', [
   const state = new Map();
   for (const r of valid) {
     const reviewed = db.prepare(
-      `SELECT COUNT(*) AS c FROM submissions WHERE reviewer_id = ?`
+      `SELECT COUNT(*) AS c FROM review_events WHERE reviewer_id = ?`
     ).get(r.id).c;
     state.set(r.id, { id: r.id, username: r.username, base_reviewed: reviewed, count: 0 });
   }
@@ -387,28 +413,14 @@ router.get('/reviewers-report.xlsx', async (_req, res) => {
     SELECT
       u.id, u.username, u.email,
 
-      -- Histórico real: cuántos envíos distintos ha revisado, incluyendo los
-      -- que después fueron corregidos. Cuenta por submission_id en review_fields.
-      (SELECT COUNT(DISTINCT rf.submission_id) FROM review_fields rf
-        WHERE rf.reviewer_id = u.id) AS revisiones_historico,
-
-      -- Aprobaciones históricas: revisiones del revisor donde NO marcó ningún 'no_cumple'.
-      (SELECT COUNT(*) FROM (
-        SELECT rf.submission_id
-        FROM review_fields rf
-        WHERE rf.reviewer_id = u.id
-        GROUP BY rf.submission_id
-        HAVING SUM(CASE WHEN rf.status = 'no_cumple' THEN 1 ELSE 0 END) = 0
-      ) x) AS aprobadas_historico,
-
-      -- Rechazos históricos: revisiones donde marcó al menos 1 'no_cumple'.
-      (SELECT COUNT(*) FROM (
-        SELECT rf.submission_id
-        FROM review_fields rf
-        WHERE rf.reviewer_id = u.id
-        GROUP BY rf.submission_id
-        HAVING SUM(CASE WHEN rf.status = 'no_cumple' THEN 1 ELSE 0 END) > 0
-      ) x) AS rechazadas_historico,
+      -- Histórico DURABLE desde review_events (cada revisión realizada cuenta, aunque
+      -- el operador haya reenviado el envío después). Es la fuente de verdad real.
+      (SELECT COUNT(*) FROM review_events e
+        WHERE e.reviewer_id = u.id) AS revisiones_historico,
+      (SELECT COUNT(*) FROM review_events e
+        WHERE e.reviewer_id = u.id AND e.result = 'aprobado') AS aprobadas_historico,
+      (SELECT COUNT(*) FROM review_events e
+        WHERE e.reviewer_id = u.id AND e.result = 'rechazado') AS rechazadas_historico,
 
       -- Vigentes: revisiones que aún son el último veredicto del envío.
       (SELECT COUNT(*) FROM submissions s
@@ -484,28 +496,27 @@ router.get('/reviewers-report.xlsx', async (_req, res) => {
   hd.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
   hd.height = 28;
 
+  // Una fila por revisión realizada (review_events, durable). Las observaciones
+  // se toman de review_fields si aún corresponden a esa revisión (mejor esfuerzo:
+  // review_fields sólo conserva la última ronda de cada envío).
   const detalle = db.prepare(`
     SELECT
       rv.username AS revisor,
-      rf.submission_id,
+      e.submission_id,
       op.username AS operador,
-      CASE WHEN SUM(CASE WHEN rf.status = 'no_cumple' THEN 1 ELSE 0 END) > 0
-           THEN 'rechazado' ELSE 'aprobado' END AS veredicto,
+      e.result AS veredicto,
       s.status AS estado_actual,
-      CASE WHEN s.reviewer_id = rv.id THEN 'Sí' ELSE 'No (reabierto)' END AS vigente,
-      MAX(rf.reviewed_at) AS fecha,
-      GROUP_CONCAT(
-        CASE WHEN rf.status = 'no_cumple' AND rf.comment IS NOT NULL
-             THEN rf.field_name || ': ' || rf.comment
-             ELSE NULL END,
-        ' | '
-      ) AS observaciones
-    FROM review_fields rf
-    JOIN users rv ON rv.id = rf.reviewer_id
-    JOIN submissions s ON s.id = rf.submission_id
+      CASE WHEN s.reviewer_id = e.reviewer_id THEN 'Sí' ELSE 'No (reabierto)' END AS vigente,
+      e.reviewed_at AS fecha,
+      (SELECT GROUP_CONCAT(rf.field_name || ': ' || rf.comment, ' | ')
+         FROM review_fields rf
+        WHERE rf.submission_id = e.submission_id AND rf.reviewer_id = e.reviewer_id
+          AND rf.status = 'no_cumple' AND rf.comment IS NOT NULL) AS observaciones
+    FROM review_events e
+    JOIN users rv ON rv.id = e.reviewer_id
+    JOIN submissions s ON s.id = e.submission_id
     JOIN users op ON op.id = s.operator_id
-    GROUP BY rv.id, rf.submission_id
-    ORDER BY rv.username COLLATE NOCASE, rf.submission_id
+    ORDER BY rv.username COLLATE NOCASE, e.submission_id, e.id
   `).all();
   for (const d of detalle) wsDetalle.addRow(d);
 
@@ -521,9 +532,9 @@ router.get('/reviewers-report.xlsx', async (_req, res) => {
   hl.alignment = { vertical: 'middle', horizontal: 'center' };
   hl.height = 24;
   const glosario = [
-    { col: 'Revisiones (histórico)', def: 'Total de envíos distintos que el revisor ha revisado alguna vez. Incluye envíos que después fueron corregidos por el operador y reabiertos para nueva revisión.' },
-    { col: 'Aprobadas (histórico)',  def: 'Cantidad de envíos donde el revisor NO marcó ningún criterio como "no cumple" (aprobó completo). Histórico.' },
-    { col: 'Rechazadas (histórico)', def: 'Cantidad de envíos donde el revisor marcó al menos un "no cumple". Histórico.' },
+    { col: 'Revisiones (histórico)', def: 'Total de revisiones realizadas por el revisor (bitácora durable review_events). Cada revisión cuenta, incluidas las de envíos que el operador corrigió y reabrió. No se pierde al reenviar.' },
+    { col: 'Aprobadas (histórico)',  def: 'Cantidad de revisiones del revisor cuyo veredicto fue "aprobado" (durable, review_events).' },
+    { col: 'Rechazadas (histórico)', def: 'Cantidad de revisiones del revisor cuyo veredicto fue "rechazado" (durable, review_events).' },
     { col: 'Aprobadas vigentes',     def: 'Envíos cuya última revisión vigente fue del revisor y el estado actual es "aprobado".' },
     { col: 'Rechazadas vigentes',    def: 'Envíos cuya última revisión vigente fue del revisor y el estado actual es "rechazado".' },
     { col: 'Reaperturas',            def: 'Envíos revisados por el revisor que fueron corregidos por el operador y por eso ya no muestran al revisor como reviewer_id actual. Trabajo realizado pero "invisible" en columnas vigentes.' },
@@ -549,9 +560,9 @@ router.get('/dashboard/kpis', (_req, res) => {
       envios_aprobados:    db.prepare("SELECT COUNT(*) c FROM submissions WHERE status='aprobado'").get().c,
       envios_rechazados:   db.prepare("SELECT COUNT(*) c FROM submissions WHERE status='rechazado'").get().c,
       envios_sin_asignar:  db.prepare("SELECT COUNT(*) c FROM submissions WHERE status='pendiente_revision' AND assigned_reviewer_id IS NULL").get().c,
-      revisiones_total:    db.prepare('SELECT COUNT(DISTINCT submission_id) c FROM review_fields').get().c,
+      revisiones_total:    db.prepare('SELECT COUNT(*) c FROM review_events').get().c,
       operadores_activos:  db.prepare("SELECT COUNT(DISTINCT operator_id) c FROM submissions").get().c,
-      revisores_activos:   db.prepare("SELECT COUNT(DISTINCT reviewer_id) c FROM review_fields").get().c,
+      revisores_activos:   db.prepare("SELECT COUNT(DISTINCT reviewer_id) c FROM review_events").get().c,
       revisores_en_pool:   db.prepare("SELECT COUNT(*) c FROM users WHERE role='revisor' AND auto_assign=1").get().c,
       revisores_total:     db.prepare("SELECT COUNT(*) c FROM users WHERE role='revisor'").get().c,
       operadores_total:    db.prepare("SELECT COUNT(*) c FROM users WHERE role='operador'").get().c,
@@ -578,28 +589,20 @@ router.get('/dashboard/reviewers', (_req, res) => {
       SELECT
         u.id, u.username, u.email, u.auto_assign,
         u.created_at,
-        (SELECT COUNT(DISTINCT rf.submission_id) FROM review_fields rf
-          WHERE rf.reviewer_id = u.id) AS revisiones_historico,
-        (SELECT COUNT(*) FROM (
-          SELECT rf.submission_id FROM review_fields rf
-          WHERE rf.reviewer_id = u.id
-          GROUP BY rf.submission_id
-          HAVING SUM(CASE WHEN rf.status='no_cumple' THEN 1 ELSE 0 END) = 0
-        )) AS aprobadas_historico,
-        (SELECT COUNT(*) FROM (
-          SELECT rf.submission_id FROM review_fields rf
-          WHERE rf.reviewer_id = u.id
-          GROUP BY rf.submission_id
-          HAVING SUM(CASE WHEN rf.status='no_cumple' THEN 1 ELSE 0 END) > 0
-        )) AS rechazadas_historico,
+        (SELECT COUNT(*) FROM review_events e
+          WHERE e.reviewer_id = u.id) AS revisiones_historico,
+        (SELECT COUNT(*) FROM review_events e
+          WHERE e.reviewer_id = u.id AND e.result = 'aprobado') AS aprobadas_historico,
+        (SELECT COUNT(*) FROM review_events e
+          WHERE e.reviewer_id = u.id AND e.result = 'rechazado') AS rechazadas_historico,
         (SELECT COUNT(*) FROM submissions s
           WHERE s.reviewer_id = u.id AND s.status='aprobado') AS vigente_aprobadas,
         (SELECT COUNT(*) FROM submissions s
           WHERE s.reviewer_id = u.id AND s.status='rechazado') AS vigente_rechazadas,
         (SELECT COUNT(*) FROM submissions s
           WHERE s.assigned_reviewer_id = u.id AND s.status='pendiente_revision') AS pendientes_asignadas,
-        (SELECT MAX(rf.reviewed_at) FROM review_fields rf
-          WHERE rf.reviewer_id = u.id) AS ultima_revision
+        (SELECT MAX(e.reviewed_at) FROM review_events e
+          WHERE e.reviewer_id = u.id) AS ultima_revision
       FROM users u
       WHERE u.role='revisor'
       ORDER BY revisiones_historico DESC, u.username COLLATE NOCASE
