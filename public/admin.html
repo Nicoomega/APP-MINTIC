@@ -283,6 +283,54 @@
 
     <!-- Panel respaldo de datos -->
     <div class="tab-panel" id="panel-respaldo">
+
+      <!-- Tarjeta: Reporte de envíos consolidados (Excel ligero) -->
+      <div class="card" style="margin-bottom:1.25rem;">
+        <div class="card-header">
+          <span style="font-size:0.9rem;font-weight:700;color:#0f172a;display:flex;align-items:center;gap:0.5rem;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#059669" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            Reporte de envíos (Excel)
+          </span>
+          <span class="pill-new">Nuevo</span>
+        </div>
+        <div class="card-body">
+          <p style="font-size:0.85rem;color:#475569;margin:0 0 0.85rem;">
+            Descarga un Excel <strong>liviano</strong> con la vista consolidada de <strong>todos los envíos</strong>:
+            estado, operador, revisor asignado, documento del propietario, URLs, fechas y los conteos de
+            archivos, observaciones del revisor y notas del operador. Ideal para revisión rápida o tableros.
+          </p>
+
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:0.85rem 1rem;margin-bottom:1rem;">
+            <div style="font-size:0.78rem;font-weight:700;color:#15803d;margin-bottom:0.45rem;">Columnas incluidas:</div>
+            <div style="display:flex;flex-wrap:wrap;gap:0.4rem;">
+              <span class="col-chip">Envío</span>
+              <span class="col-chip">Estado</span>
+              <span class="col-chip">Operador</span>
+              <span class="col-chip">Revisor</span>
+              <span class="col-chip">Asignado a</span>
+              <span class="col-chip">Doc</span>
+              <span class="col-chip">Número</span>
+              <span class="col-chip">URL Vitrina</span>
+              <span class="col-chip">Enviado</span>
+              <span class="col-chip">Revisado</span>
+              <span class="col-chip"># arch.</span>
+              <span class="col-chip"># obs. revisor</span>
+              <span class="col-chip"># notas op.</span>
+            </div>
+          </div>
+
+          <div id="envios-alert" class="d-none" role="status" aria-live="polite" style="margin-bottom:0.85rem;"></div>
+
+          <div style="display:flex;justify-content:flex-end;">
+            <button class="btn btn-success btn-sm" id="btn-descargar-envios" aria-label="Descargar reporte de envíos en formato Excel">
+              <span id="spinner-envios" class="d-none"><svg class="spinner" style="border-top-color:#fff;width:13px;height:13px;" viewBox="0 0 24 24"></svg></span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"/></svg>
+              Descargar reporte de envíos (.xlsx)
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header">
           <span style="font-size:0.9rem;font-weight:700;color:#0f172a;display:flex;align-items:center;gap:0.5rem;">
@@ -337,7 +385,7 @@
             </ul>
           </div>
 
-          <div id="respaldo-alert" class="d-none" style="margin-bottom:0.85rem;"></div>
+          <div id="respaldo-alert" class="d-none" role="status" aria-live="polite" style="margin-bottom:0.85rem;"></div>
 
           <div style="display:flex;gap:0.5rem;justify-content:flex-end;align-items:center;flex-wrap:wrap;">
             <span style="font-size:0.75rem;color:#94a3b8;margin-right:auto;">⚠️ El respaldo contiene datos personales. Guárdalo en un medio seguro.</span>

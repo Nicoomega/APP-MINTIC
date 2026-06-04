@@ -699,6 +699,37 @@ body {
   line-height: 1;
 }
 
+/* ── Reporte de envíos (pestaña Respaldo) ──────────────────────────────────── */
+.pill-new {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #15803d;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  line-height: 1.4;
+  animation: pillPulse 2.4s ease-in-out infinite;
+}
+@keyframes pillPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.0); }
+  50%      { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12); }
+}
+.col-chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #166534;
+  background: #fff;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 0.15rem 0.5rem;
+  white-space: nowrap;
+  transition: background 0.15s, transform 0.12s;
+}
+.col-chip:hover { background: #f0fdf4; transform: translateY(-1px); }
+
 /* ── Notas opcionales del operador ─────────────────────────────────────────── */
 .op-note-wrap {
   margin-top: 0.55rem;
@@ -784,4 +815,53 @@ textarea.form-control.op-note:focus { border-color: #f59e0b; box-shadow: 0 0 0 3
   .card-body { padding: 1rem; }
   .modal-box { max-width: 100%; border-radius: 1.25rem 1.25rem 0 0; }
   .dash-grid { grid-template-columns: 1fr; }
+  .col-chip { font-size: 0.68rem; }
+}
+
+/* ── Accesibilidad y pulido (UI/UX Pro Max) ───────────────────────────────────
+   Recomendaciones del sistema de diseño "Data-Dense Dashboard": focus visible
+   para teclado, números tabulares en datos, y respeto a prefers-reduced-motion. */
+
+/* Focus visible consistente para navegación por teclado (WCAG / Apple HIG).
+   Solo aparece al navegar con teclado (no al hacer click con ratón). */
+a:focus-visible,
+select:focus-visible,
+input[type="checkbox"]:focus-visible,
+.tab-btn:focus-visible,
+.toggle-pwd:focus-visible,
+.modal-close:focus-visible,
+.btn-logout:focus-visible {
+  outline: 3px solid rgba(5, 150, 105, 0.35);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Cursor de puntero en todos los elementos interactivos */
+.tab-btn, .btn, .btn-logout, .toggle-pwd, .modal-close,
+input[type="checkbox"], select, label[for] { cursor: pointer; }
+
+/* Números tabulares: evita que las columnas de datos "salten" al cambiar dígitos
+   (KPIs del dashboard, contadores, tablas de revisores/operadores). */
+.kpi-value, .data-table td, .stat-pool, .col-chip,
+[id^="stat-"], [id^="count-"] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Respeto a las preferencias de movimiento reducido del usuario (CRÍTICO a11y).
+   Si el sistema operativo pide menos movimiento, desactivamos animaciones largas
+   y dejamos solo transiciones mínimas, sin romper la usabilidad. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .tab-panel { animation: none !important; }
+  .pill-new { animation: none !important; }
+  .kpi-card.kpi-skel, .loader-line { animation: none !important; background: #eef2f7 !important; }
+  .btn:hover:not(:disabled),
+  .card:hover,
+  .col-chip:hover { transform: none !important; }
 }

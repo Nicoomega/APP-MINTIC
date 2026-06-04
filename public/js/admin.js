@@ -724,6 +724,51 @@ async function handleDownloadDatabase() {
   }
 }
 
+function showEnviosAlert(msg, type = 'danger') {
+  const box = document.getElementById('envios-alert');
+  if (!box) return;
+  box.innerHTML = `<div class="alert alert-${type}" style="margin:0;">${escapeHtml(msg)}</div>`;
+  box.classList.remove('d-none');
+}
+
+async function handleDownloadEnvios() {
+  const btn     = document.getElementById('btn-descargar-envios');
+  const spinner = document.getElementById('spinner-envios');
+  document.getElementById('envios-alert')?.classList.add('d-none');
+
+  spinner.classList.remove('d-none');
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/admin/envios-consolidados.xlsx', { credentials: 'same-origin' });
+    if (!res.ok) {
+      let msg = 'No se pudo generar el reporte de envíos.';
+      try { const data = await res.json(); msg = data.error ?? msg; } catch { /* ignore */ }
+      showEnviosAlert(msg);
+      return;
+    }
+
+    const blob  = await res.blob();
+    const today = new Date().toISOString().slice(0, 10);
+    const url   = URL.createObjectURL(blob);
+    const a     = document.createElement('a');
+    a.href      = url;
+    a.download  = `envios-consolidados-${today}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+
+    showEnviosAlert(`Reporte descargado correctamente (${formatBytes(blob.size)}).`, 'success');
+    toast('Reporte de envíos descargado.', 'success', 2500);
+  } catch {
+    showEnviosAlert('Error de conexión al descargar el reporte.');
+  } finally {
+    spinner.classList.add('d-none');
+    btn.disabled = false;
+  }
+}
+
 async function handleAssignReviews() {
   const checks = [...document.querySelectorAll('.asignar-check:checked')];
   const reviewerIds = checks.map(c => Number(c.dataset.id));
@@ -827,6 +872,7 @@ async function handleAssignReviews() {
   document.getElementById('btn-refrescar-respaldo')?.addEventListener('click', loadBackupSummary);
   document.getElementById('btn-descargar-respaldo')?.addEventListener('click', handleDownloadBackup);
   document.getElementById('btn-descargar-db')?.addEventListener('click', handleDownloadDatabase);
+  document.getElementById('btn-descargar-envios')?.addEventListener('click', handleDownloadEnvios);
 
   // ── Asignación de revisiones ──────────────────────────────────────────────
   document.getElementById('btn-refrescar-asignacion')?.addEventListener('click', loadAssignmentOverview);

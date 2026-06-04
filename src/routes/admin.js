@@ -925,6 +925,143 @@ router.get('/database.sqlite', async (_req, res) => {
   stream.pipe(res);
 });
 
+// ── GET /api/admin/envios-consolidados.xlsx ───────────────────────────────────
+// Excel de una sola hoja con la vista consolidada de TODOS los envíos:
+// Envío | Estado | Operador | Revisor | Asignado a | Doc | Número | URL Vitrina |
+// Enviado | Revisado | # arch. | # obs. revisor | # notas op.
+//
+// Los conteos se calculan con subconsultas para que cada fila sea autosuficiente:
+//   # arch.        → cantidad de archivos subidos del envío (submission_files)
+//   # obs. revisor → observaciones "no_cumple" de la última revisión (review_fields)
+//   # notas op.    → notas opcionales del operador (operator_notes)
+router.get('/envios-consolidados.xlsx', async (_req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT
+        s.id                                       AS envio,
+        s.status                                   AS estado,
+        op.username                                AS operador,
+        rv.username                                AS revisor,
+        ar.username                                AS asignado_a,
+        s.owner_doc_type                           AS doc,
+        s.owner_doc_number                         AS numero,
+        s.url_vitrina                              AS url_vitrina,
+        s.submitted_at                             AS enviado,
+        s.reviewed_at                              AS revisado,
+        (SELECT COUNT(*) FROM submission_files sf
+           WHERE sf.submission_id = s.id)          AS num_archivos,
+        (SELECT COUNT(*) FROM review_fields rf
+           WHERE rf.submission_id = s.id
+             AND rf.status = 'no_cumple')          AS num_obs_revisor,
+        (SELECT COUNT(*) FROM operator_notes opn
+           WHERE opn.submission_id = s.id)         AS num_notas_op
+      FROM   submissions s
+      JOIN      users op ON op.id = s.operator_id
+      LEFT JOIN users rv ON rv.id = s.reviewer_id
+      LEFT JOIN users ar ON ar.id = s.assigned_reviewer_id
+      ORDER BY s.id
+    `).all();
+
+    const ESTADO_LABEL = {
+      pendiente_revision: 'Pendiente de revisión',
+      aprobado:           'Aprobado',
+      rechazado:          'Rechazado',
+    };
+    const ESTADO_FILL = {
+      pendiente_revision: 'FFFEF3C7',
+      aprobado:           'FFDCFCE7',
+      rechazado:          'FFFEE2E2',
+    };
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'MINTIC';
+    wb.created = new Date();
+
+    const ws = wb.addWorksheet('Envíos completos', {
+      views: [{ state: 'frozen', ySplit: 1 }],
+    });
+
+    ws.columns = [
+      { header: 'Envío',          key: 'envio',           width: 9 },
+      { header: 'Estado',         key: 'estado',          width: 22 },
+      { header: 'Operador',       key: 'operador',        width: 28 },
+      { header: 'Revisor',        key: 'revisor',         width: 24 },
+      { header: 'Asignado a',     key: 'asignado_a',      width: 24 },
+      { header: 'Doc',            key: 'doc',             width: 8 },
+      { header: 'Número',         key: 'numero',          width: 18 },
+      { header: 'URL Vitrina',    key: 'url_vitrina',     width: 50 },
+      { header: 'Enviado',        key: 'enviado',         width: 20 },
+      { header: 'Revisado',       key: 'revisado',        width: 20 },
+      { header: '# arch.',        key: 'num_archivos',    width: 10 },
+      { header: '# obs. revisor', key: 'num_obs_revisor', width: 14 },
+      { header: '# notas op.',    key: 'num_notas_op',    width: 12 },
+    ];
+
+    // Estilo de encabezado
+    const header = ws.getRow(1);
+    header.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+    header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF059669' } };
+    header.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    header.height = 26;
+
+    for (const r of rows) {
+      const row = ws.addRow({
+        ...r,
+        estado: ESTADO_LABEL[r.estado] ?? r.estado,
+      });
+      // Colorear la celda de estado
+      const fill = ESTADO_FILL[r.estado];
+      if (fill) {
+        row.getCell('estado').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+        row.getCell('estado').font = { bold: true };
+      }
+    }
+
+    // Centrar columnas numéricas y de documento
+    ['doc', 'num_archivos', 'num_obs_revisor', 'num_notas_op'].forEach(key => {
+      ws.getColumn(key).alignment = { horizontal: 'center' };
+    });
+
+    // Autofiltro sobre todo el rango con datos
+    ws.autoFilter = {
+      from: { row: 1, column: 1 },
+      to:   { row: 1, column: ws.columnCount },
+    };
+
+    // Hoja de resumen rápido
+    const wsR = wb.addWorksheet('Resumen');
+    wsR.columns = [
+      { header: 'Métrica', key: 'm', width: 32 },
+      { header: 'Valor',   key: 'v', width: 16 },
+    ];
+    const hr = wsR.getRow(1);
+    hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
+    hr.alignment = { vertical: 'middle', horizontal: 'center' };
+    const totalEnvios     = rows.length;
+    const totalAprobados  = rows.filter(r => r.estado === 'aprobado').length;
+    const totalRechazados = rows.filter(r => r.estado === 'rechazado').length;
+    const totalPendientes = rows.filter(r => r.estado === 'pendiente_revision').length;
+    wsR.addRow({ m: 'Total envíos',        v: totalEnvios });
+    wsR.addRow({ m: 'Aprobados',           v: totalAprobados });
+    wsR.addRow({ m: 'Rechazados',          v: totalRechazados });
+    wsR.addRow({ m: 'Pendientes',          v: totalPendientes });
+    wsR.addRow({ m: 'Tasa de aprobación',  v: totalEnvios ? `${(totalAprobados / totalEnvios * 100).toFixed(1)}%` : '0%' });
+    wsR.addRow({ m: 'Generado',            v: new Date().toLocaleString('es-CO') });
+
+    const today = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="envios-consolidados-${today}.xlsx"`);
+    res.setHeader('Cache-Control', 'no-store');
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (e) {
+    console.error('[envios-consolidados]', e);
+    if (!res.headersSent) return res.status(500).json({ error: 'No se pudo generar el reporte de envíos.' });
+    res.end();
+  }
+});
+
 // ── Helpers para el backup ───────────────────────────────────────────────────
 function toCsv(rows) {
   if (!rows.length) return '';
